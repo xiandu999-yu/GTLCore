@@ -10,13 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        branch: [gtl-1431, gtl-1431-skyblock]
+        branch: [gtl-1431-skyblock]   # 仅构建该分支
 
     outputs:
-      gtl-1431-version: ${{ steps.check-version.outputs.version }}
-      gtl-1431-changed: ${{ steps.check-version.outputs.changed }}
-      gtl-1431-skyblock-version: ${{ steps.check-version.outputs.version }}
-      gtl-1431-skyblock-changed: ${{ steps.check-version.outputs.changed }}
+      skyblock-version: ${{ steps.check-version.outputs.version }}
+      skyblock-changed: ${{ steps.check-version.outputs.changed }}
 
     steps:
       - name: Checkout
@@ -85,13 +83,13 @@ jobs:
       - name: Save version info
         run: |
           mkdir -p /tmp/version-info
-          echo "${{ steps.check-version.outputs.version }}" > /tmp/version-info/${{ matrix.branch }}-version.txt
-          echo "${{ steps.check-version.outputs.changed }}" > /tmp/version-info/${{ matrix.branch }}-changed.txt
+          echo "${{ steps.check-version.outputs.version }}" > /tmp/version-info/skyblock-version.txt
+          echo "${{ steps.check-version.outputs.changed }}" > /tmp/version-info/skyblock-changed.txt
 
       - name: Upload version info
         uses: actions/upload-artifact@v4
         with:
-          name: version-info-${{ matrix.branch }}
+          name: version-info-skyblock
           path: /tmp/version-info/
 
   release:
@@ -116,43 +114,21 @@ jobs:
       - name: Check for version changes
         id: prepare-release
         run: |
-          MAIN_CHANGED=false
           SKYBLOCK_CHANGED=false
-          MAIN_VERSION=""
           SKYBLOCK_VERSION=""
 
-          if [ -f "version-info-gtl-1431/gtl-1431-version.txt" ]; then
-            MAIN_VERSION=$(cat "version-info-gtl-1431/gtl-1431-version.txt")
-            MAIN_CHANGED=$(cat "version-info-gtl-1431/gtl-1431-changed.txt")
-          fi
-          if [ -f "version-info-gtl-1431-skyblock/gtl-1431-skyblock-version.txt" ]; then
-            SKYBLOCK_VERSION=$(cat "version-info-gtl-1431-skyblock/gtl-1431-skyblock-version.txt")
-            SKYBLOCK_CHANGED=$(cat "version-info-gtl-1431-skyblock/gtl-1431-skyblock-changed.txt")
+          if [ -f "version-info-skyblock/skyblock-version.txt" ]; then
+            SKYBLOCK_VERSION=$(cat "version-info-skyblock/skyblock-version.txt")
+            SKYBLOCK_CHANGED=$(cat "version-info-skyblock/skyblock-changed.txt")
           fi
 
-          # 首次发布时包含所有分支
+          # 首次发布时强制发布
           if [ "${{ steps.check-releases.outputs.no_releases }}" = "true" ]; then
-            MAIN_CHANGED=true
             SKYBLOCK_CHANGED=true
           fi
 
-          echo "main_changed=$MAIN_CHANGED" >> $GITHUB_OUTPUT
           echo "skyblock_changed=$SKYBLOCK_CHANGED" >> $GITHUB_OUTPUT
-          echo "main_version=$MAIN_VERSION" >> $GITHUB_OUTPUT
           echo "skyblock_version=$SKYBLOCK_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create gtl-1431 Release
-        if: steps.prepare-release.outputs.main_changed == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.prepare-release.outputs.main_version }}_gtl-1431
-          name: gtlcore-gtl-1431 v${{ steps.prepare-release.outputs.main_version }}
-          body: Auto-release triggered by version update.
-          files: gtlcore-gtl-1431/*.jar
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create gtl-1431-skyblock Release
         if: steps.prepare-release.outputs.skyblock_changed == 'true'
