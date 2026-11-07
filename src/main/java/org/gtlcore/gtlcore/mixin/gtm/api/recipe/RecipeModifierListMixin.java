@@ -1,6 +1,9 @@
 package org.gtlcore.gtlcore.mixin.gtm.api.recipe;
 
+import org.gtlcore.gtlcore.api.machine.computation.ComputationAmounts;
+import org.gtlcore.gtlcore.api.recipe.BatchProcessing;
 import org.gtlcore.gtlcore.api.recipe.IAdvancedOCResult;
+import org.gtlcore.gtlcore.api.recipe.RecipeMultiplierTracker;
 import org.gtlcore.gtlcore.utils.NumberUtils;
 
 import com.gregtechceu.gtceu.api.capability.recipe.EURecipeCapability;
@@ -40,14 +43,24 @@ public abstract class RecipeModifierListMixin {
     @Nullable
     public GTRecipe apply(MetaMachine machine, @NotNull GTRecipe recipe, @NotNull OCParams params, @NotNull OCResult result) {
         GTRecipe modifiedRecipe = recipe;
+        boolean isSubTickParallelized = false;
+        RecipeMultiplierTracker.begin(machine, recipe);
 
         for (RecipeModifier modifier : this.modifiers) {
             if (modifiedRecipe != null) {
+                GTRecipe beforeModifier = modifiedRecipe;
+                int resultDurationBefore = result.getDuration();
                 modifiedRecipe = modifier.apply(machine, modifiedRecipe, params, result);
+                if (resultDurationBefore == 0 && result.getDuration() != 0) {
+                    RecipeMultiplierTracker.captureBeforeOverclock(machine, beforeModifier);
+                }
             }
         }
 
+        RecipeMultiplierTracker.finish(machine, modifiedRecipe);
+
         if (modifiedRecipe != null && result.getDuration() != 0) {
+            ComputationAmounts.applyOverclock(modifiedRecipe, result);
             modifiedRecipe.duration = result.getDuration();
 
             if (result.getEut() > 0L) {
@@ -73,6 +86,7 @@ public abstract class RecipeModifierListMixin {
 
                     // last was subTick Modifier
                     if (durationFactor != 0 && voltageFactor != 0) {
+                        isSubTickParallelized = true;
                         long actualEUt;
                         if (actualAppliedMultiply == tryParallelMultiply) {
                             actualEUt = result.getParallelEUt();
@@ -95,7 +109,9 @@ public abstract class RecipeModifierListMixin {
             }
         }
 
+        isSubTickParallelized |= BatchProcessing.canOverclockBelowOneTick(result) ||
+                BatchProcessing.isCustomSubTickParallelized(machine, recipe, modifiedRecipe);
         result.reset();
-        return modifiedRecipe;
+        return modifiedRecipe == null ? null : BatchProcessing.apply(machine, modifiedRecipe, isSubTickParallelized);
     }
 }

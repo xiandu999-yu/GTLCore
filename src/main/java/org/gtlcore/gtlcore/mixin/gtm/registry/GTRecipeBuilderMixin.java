@@ -51,19 +51,24 @@ public abstract class GTRecipeBuilderMixin {
 
     @Unique
     private int gTLCore$getDuration() {
-        if (ConfigHolder.INSTANCE.durationMultiplier == 1 || gTLCore$eut < 0 ||
-                recipeType == GTRecipeTypes.get("primitive_void_ore") ||
-                recipeType == GTRecipeTypes.get("large_boiler") ||
-                recipeType == GTRecipeTypes.get("steam_boiler") ||
-                recipeType == GTRecipeTypes.get("slaughterhouse") ||
-                recipeType == GTRecipeTypes.get("dyson_sphere") ||
-                recipeType == GTRecipeTypes.get("space_elevator") ||
-                recipeType == GTRecipeTypes.get("annihilate_generator") ||
+        if (ConfigHolder.INSTANCE.content.durationMultiplier == 1 || gTLCore$eut < 0 ||
+                recipeType == PRIMITIVE_VOID_ORE_RECIPES ||
+                recipeType == GTRecipeTypes.LARGE_BOILER_RECIPES ||
+                recipeType == GTRecipeTypes.STEAM_BOILER_RECIPES ||
+                recipeType == SLAUGHTERHOUSE_RECIPES ||
+                recipeType == DYSON_SPHERE_RECIPES ||
+                recipeType == SPACE_ELEVATOR_RECIPES ||
+                recipeType == ANNIHILATE_GENERATOR_RECIPES ||
                 recipeType == CREATE_AGGREGATION_RECIPES ||
-                recipeType == DOOR_OF_CREATE_RECIPES) {
+                recipeType == LARGE_NAQUADAH_REACTOR_RECIPES ||
+                recipeType == HYPER_REACTOR_RECIPES ||
+                recipeType == ADVANCED_HYPER_REACTOR_RECIPES ||
+                recipeType == DOOR_OF_CREATE_RECIPES ||
+                recipeType == BLOCK_CONVERSION_RECIPES ||
+                recipeType == WEATHER_CONTROL_RECIPES) {
             return Math.abs(duration);
         }
-        return (int) Math.min(Integer.MAX_VALUE, Math.max(1, Math.abs(duration * ConfigHolder.INSTANCE.durationMultiplier)));
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(1, Math.abs(duration * ConfigHolder.INSTANCE.content.durationMultiplier)));
     }
 
     @Inject(method = "toJson", at = @At("TAIL"), remap = false)

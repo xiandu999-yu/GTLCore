@@ -3957,7 +3957,7 @@ public class MaterialBuilder {
         PNitroaniline = new Material.Builder(GTCEu.id("p_nitroaniline"))
                 .fluid()
                 .color(0xcc9037)
-                .components(Carbon, 6, Hydrogen, 8, Nitrogen, 2)
+                .components(Carbon, 6, Hydrogen, 8, Nitrogen, 2, Oxygen, 2)
                 .iconSet(DULL)
                 .buildAndRegister();
 
@@ -4588,7 +4588,7 @@ public class MaterialBuilder {
         SpaceTime = new Material.Builder(GTCEu.id("spacetime"))
                 .ingot()
                 .liquid(new FluidBuilder().temperature(1).customStill())
-                .fluidPipeProperties(2147483647, ConfigHolder.INSTANCE.spacetimePip, true, true, true, true)
+                .fluidPipeProperties(2147483647, ConfigHolder.INSTANCE.machines.spacetimePip, true, true, true, true)
                 .element(GTLElements.SPACETIME)
                 .iconSet(new MaterialIconSet("spacetime"))
                 .flags(GTLMaterialFlags.GENERATE_NANOSWARM, NO_UNIFICATION)

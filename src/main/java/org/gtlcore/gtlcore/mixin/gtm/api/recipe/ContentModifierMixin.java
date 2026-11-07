@@ -1,6 +1,7 @@
 package org.gtlcore.gtlcore.mixin.gtm.api.recipe;
 
 import org.gtlcore.gtlcore.api.recipe.IAdvancedContentModifier;
+import org.gtlcore.gtlcore.utils.datastructure.Int128;
 
 import com.gregtechceu.gtceu.api.recipe.content.ContentModifier;
 
@@ -36,7 +37,7 @@ public abstract class ContentModifierMixin implements IAdvancedContentModifier {
     @Overwrite(remap = false)
     public Number apply(Number number) {
         if (number instanceof Long l) {
-            if (useFraction) return l / denominator * numerator;
+            if (useFraction) return gtlcore$saturatedFraction(l);
             return number.doubleValue() * this.multiplier + this.addition;
         } else if (number instanceof BigDecimal decimal) {
             return decimal.multiply(BigDecimal.valueOf(this.multiplier)).add(BigDecimal.valueOf(this.addition));
@@ -45,6 +46,20 @@ public abstract class ContentModifierMixin implements IAdvancedContentModifier {
         } else {
             return number.doubleValue() * this.multiplier + this.addition;
         }
+    }
+
+    @Unique
+    private long gtlcore$saturatedFraction(long value) {
+        return new Int128(value).multiply(numerator).divide(denominator).longValue();
+    }
+
+    @Override
+    @Unique
+    public long applyExact(long value) {
+        if (!useFraction) return IAdvancedContentModifier.super.applyExact(value);
+        if (value < 0 || numerator < 0 || denominator <= 0) throw new IllegalArgumentException("Invalid exact modifier");
+        return BigInteger.valueOf(value).multiply(BigInteger.valueOf(numerator))
+                .divide(BigInteger.valueOf(denominator)).longValueExact();
     }
 
     @Override

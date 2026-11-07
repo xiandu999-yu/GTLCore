@@ -1,5 +1,7 @@
 package org.gtlcore.gtlcore.integration.jei;
 
+import org.gtlcore.gtlcore.client.preview.PreviewMaterialHighlights;
+
 import com.lowdragmc.lowdraglib.gui.ingredient.IRecipeIngredientSlot;
 import com.lowdragmc.lowdraglib.utils.Position;
 
@@ -17,6 +19,8 @@ import mezz.jei.api.gui.widgets.ISlottedRecipeWidget;
 import mezz.jei.api.ingredients.ITypedIngredient;
 import mezz.jei.api.recipe.RecipeIngredientRole;
 import mezz.jei.api.runtime.IClickableIngredient;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +40,7 @@ public class SlotRecipeWidget implements ISlottedRecipeWidget {
         this.slot = slot;
         this.jeiSlot = jeiSlot;
         this.position = new Position(slot.self().getPositionX(), slot.self().getPositionY());
+        PreviewMaterialHighlights.bind(slot, jeiSlot);
     }
 
     @Override
@@ -58,6 +63,11 @@ public class SlotRecipeWidget implements ISlottedRecipeWidget {
 
     @SuppressWarnings({ "removal", "unchecked" })
     public class RecipeSlotDrawable implements IRecipeSlotDrawable {
+
+        @Override
+        public void drawTooltip(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+            jeiSlot.drawTooltip(guiGraphics, mouseX, mouseY);
+        }
 
         @Override
         public void draw(GuiGraphics guiGraphics) {
@@ -115,6 +125,11 @@ public class SlotRecipeWidget implements ISlottedRecipeWidget {
                     .filter(IClickableIngredient.class::isInstance)
                     .map(IClickableIngredient.class::cast)
                     .map(IClickableIngredient::getTypedIngredient);
+        }
+
+        @Override
+        public @Unmodifiable List<@Nullable ITypedIngredient<?>> getAllIngredientsList() {
+            return List.of();
         }
 
         @Override

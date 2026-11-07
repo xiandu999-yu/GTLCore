@@ -1,7 +1,6 @@
 package org.gtlcore.gtlcore.client.gui.widget;
 
 import com.gregtechceu.gtceu.api.gui.GuiTextures;
-import com.gregtechceu.gtceu.integration.ae2.gui.widget.slot.AEConfigSlotWidget;
 import com.gregtechceu.gtceu.integration.ae2.slot.*;
 
 import com.lowdragmc.lowdraglib.gui.util.ClickData;
@@ -34,50 +33,80 @@ public class AEDualConfigWidget extends WidgetGroup {
     protected IConfigurableSlot[] displayList;
     protected ButtonWidget pageUpWidget;
     protected ButtonWidget pageDownWidget;
+    protected AEDualAmountSetWidget amountSetWidget;
     private final ExportOnlyAEItemList aeItem;
     private final ExportOnlyAEFluidList aeFluid;
     private final IntConsumer pageSetter;
+    private final boolean amountEditingEnabled;
 
     public static final int CONFIG_SIZE = 16;
     protected int page;
     protected final int MAX_PAGE;
     private final int offset;
+    private final int pageSize;
+    private final int rows;
 
     private static final int UPDATE_ID = 1001;
 
     public AEDualConfigWidget(int x, int y, ExportOnlyAEItemList aeItem, ExportOnlyAEFluidList aeFluid, IntConsumer pageSetter, int page) {
-        super(new Position(x, y), new Size(CONFIG_SIZE / 2 * 18, 18 * 4 + 2 + 19));
+        this(x, y, aeItem, aeFluid, pageSetter, page, false, 2);
+    }
+
+    public AEDualConfigWidget(int x, int y, ExportOnlyAEItemList aeItem, ExportOnlyAEFluidList aeFluid,
+                              IntConsumer pageSetter, int page, boolean amountEditingEnabled) {
+        this(x, y, aeItem, aeFluid, pageSetter, page, amountEditingEnabled, 2);
+    }
+
+    public AEDualConfigWidget(int x, int y, ExportOnlyAEItemList aeItem, ExportOnlyAEFluidList aeFluid,
+                              IntConsumer pageSetter, int page, boolean amountEditingEnabled, int rows) {
+        super(new Position(x, y), new Size(8 * 18, Math.max(1, rows) * 38 + 17));
         this.aeItem = aeItem;
         this.aeFluid = aeFluid;
         this.pageSetter = pageSetter;
+        this.amountEditingEnabled = amountEditingEnabled;
+        this.rows = Math.max(1, rows);
+        this.pageSize = this.rows * 8;
         this.offset = aeItem.getSize();
-        this.page = page;
-        this.MAX_PAGE = Math.max(1, offset / CONFIG_SIZE);
+        this.MAX_PAGE = Math.max(1, offset / pageSize);
+        this.page = Math.max(1, Math.min(page, MAX_PAGE));
         this.config = marge();
         init();
-        this.pageUpWidget = new ButtonWidget(3, 77, 16, 16,
+        int navigationY = this.rows * 38 + 1;
+        this.pageUpWidget = new ButtonWidget(3, navigationY, 16, 16,
                 GuiTextures.BUTTON_LEFT, this::pageUp);
-        this.pageDownWidget = new ButtonWidget(125, 77, 16, 16,
+        this.pageDownWidget = new ButtonWidget(125, navigationY, 16, 16,
                 GuiTextures.BUTTON_RIGHT, this::pageDown);
-        this.addWidget(new LabelWidget(66, 82, () -> this.page + " / " + MAX_PAGE));
+        this.addWidget(new LabelWidget(66, navigationY + 5, () -> this.page + " / " + MAX_PAGE));
         this.addWidget(this.pageUpWidget);
         this.addWidget(this.pageDownWidget);
+        int amountSetX = AmountBoxRenderer.GUI_WIDTH + AmountBoxRenderer.GAP - x;
+        int amountSetY = Math.max(0, (this.rows * 38 + 17 - AEDualAmountSetWidget.WIDGET_HEIGHT) / 2);
+        this.amountSetWidget = new AEDualAmountSetWidget(amountSetX, amountSetY, this);
+        this.addWidget(this.amountSetWidget);
+        this.addWidget(this.amountSetWidget.getAmountText());
+        this.disableAmount();
     }
 
     protected void pageUp(ClickData data) {
         if (page < 2) return;
+        disableAmount();
         page--;
         pageSetter.accept(page);
     }
 
     protected void pageDown(ClickData data) {
         if (page >= MAX_PAGE) return;
+        disableAmount();
         page++;
         pageSetter.accept(page);
     }
 
     protected boolean isAutoPull() {
         return aeFluid.isAutoPull() || aeItem.isAutoPull();
+    }
+
+    public int getSlotIndex(int visibleIndex) {
+        return (page - 1) * pageSize + visibleIndex;
     }
 
     private IConfigurableSlot[] marge() {
@@ -98,7 +127,7 @@ public class AEDualConfigWidget extends WidgetGroup {
             this.displayList[index] = index < half ? new ExportOnlyAEItemSlot() : new ExportOnlyAEFluidSlot();
             this.cached[index] = index < half ? new ExportOnlyAEItemSlot() : new ExportOnlyAEFluidSlot();
             line = index / 8;
-            if (line >= 2) continue;
+            if (line >= rows) continue;
             this.addWidget(new AEDualConfigSlotWidget((index - line * 8) * 18, line * (18 * 2 + 2), this, index));
         }
     }
@@ -106,12 +135,36 @@ public class AEDualConfigWidget extends WidgetGroup {
     @OnlyIn(Dist.CLIENT)
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (this.amountEditingEnabled && this.amountSetWidget.isVisible() &&
+                this.amountSetWidget.getAmountText().mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
         for (Widget w : this.widgets) {
-            if (w instanceof AEConfigSlotWidget slot) {
+            if (w instanceof AEDualConfigSlotWidget slot) {
                 slot.setSelect(false);
             }
         }
+        this.disableAmount();
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    public void enableAmount(int index) {
+        if (!this.amountEditingEnabled) {
+            return;
+        }
+        this.amountSetWidget.setSlotIndex(index);
+        this.amountSetWidget.setVisible(true);
+        this.amountSetWidget.getAmountText().setVisible(true);
+    }
+
+    public void disableAmount() {
+        this.amountSetWidget.setSlotIndex(-1);
+        this.amountSetWidget.setVisible(false);
+        this.amountSetWidget.getAmountText().setVisible(false);
+    }
+
+    public boolean isAmountEditingEnabled() {
+        return this.amountEditingEnabled;
     }
 
     @Override

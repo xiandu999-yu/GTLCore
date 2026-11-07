@@ -4,7 +4,9 @@ import org.gtlcore.gtlcore.api.gui.MEPatternCatalystUIManager;
 import org.gtlcore.gtlcore.api.gui.PatternCircuitConfigurator;
 import org.gtlcore.gtlcore.api.machine.trait.*;
 import org.gtlcore.gtlcore.api.machine.trait.MEPart.IMEPatternTrait;
+import org.gtlcore.gtlcore.common.data.GTLItems;
 import org.gtlcore.gtlcore.common.data.GTLMachines;
+import org.gtlcore.gtlcore.common.item.VirtualIngredientBehavior;
 import org.gtlcore.gtlcore.integration.ae2.AEUtils;
 import org.gtlcore.gtlcore.integration.ae2.widget.AEPatternViewExtendSlotWidget;
 import org.gtlcore.gtlcore.utils.GTLUtil;
@@ -101,7 +103,7 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
 
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
-            return slot <= maxPatternCount && AEUtils.PROCESS_FILTER.apply(stack);
+            return slot >= 0 && slot < maxPatternCount && AEUtils.PROCESS_FILTER.apply(stack);
         }
     };
 
@@ -111,6 +113,8 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
 
     protected final int maxPatternCount;
     private final boolean[] hasPatternArray;
+    // Track the encoded circuit separately: the runtime cache may instead hold a pushed virtual circuit.
+    private final int[] patternCircuitConfigs;
     @DescSynced
     protected final boolean[] cacheRecipe;
     @Persisted
@@ -163,6 +167,8 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
         this.maxPatternCount = maxPatternCount;
 
         this.hasPatternArray = new boolean[maxPatternCount];
+        this.patternCircuitConfigs = new int[maxPatternCount];
+        Arrays.fill(patternCircuitConfigs, -1);
         this.cacheRecipe = new boolean[maxPatternCount];
         this.internalInventory = new InternalSlot[maxPatternCount];
         this.catalystItems = new ItemStackTransfer[maxPatternCount];
@@ -249,6 +255,7 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
 
         var internalInv = internalInventory[index];
         var newPattern = patternInventory.getStackInSlot(index);
+        int oldCircuit = patternCircuitConfigs[index];
         var newPatternDetailsWithOutCircuit = getRealPattern(index, newPattern);
         var oldPatternDetails = slot2PatternMap.get(index);
 
@@ -260,11 +267,18 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
             hasPatternArray[index] = false;
         }
 
-        if (oldPatternDetails != null && !oldPatternDetails.equals(newPatternDetailsWithOutCircuit)) {
+        if (oldPatternDetails != null && (!oldPatternDetails.equals(newPatternDetailsWithOutCircuit) ||
+                oldCircuit != patternCircuitConfigs[index])) {
             internalInv.getCacheManager().clearAllCaches();
+            internalInv.clearVirtualSupply();
             removeSlotFromGTRecipeCache(index);
             refundSlot(internalInv.getItemInventory(), internalInv.getFluidInventory());
             AEUtils.reFunds(buffer, getMainNode().getGrid(), actionSource);
+        }
+        // Invalidation also clears the circuit installed while decoding the new pattern.
+        // Restore it only after the old recipe and its virtual supply have been discarded.
+        if (patternCircuitConfigs[index] >= 0) {
+            internalInv.getCacheManager().setCircuitCache(patternCircuitConfigs[index]);
         }
 
         reCalculatePatternSlotMap();
@@ -281,16 +295,31 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
     }
 
     private void reCalculateCatalystItemMap(int slot) {
-        final var itemCatalystInventory = internalInventory[slot].getItemCatalystInventory();
+        final var internalSlot = internalInventory[slot];
+        final var itemCatalystInventory = internalSlot.getItemCatalystInventory();
         itemCatalystInventory.clear();
+        internalSlot.getConfiguredVirtualItems().clear();
+        internalSlot.getConfiguredVirtualFluids().clear();
         var catalystItem = catalystItems[slot];
         for (int i = 0; i < catalystItem.getSlots(); i++) {
             ItemStack stack = catalystItem.getStackInSlot(i);
-            if (!stack.isEmpty()) {
-                itemCatalystInventory.mergeLong(AEItemKey.of(stack), stack.getCount(), Long::sum);
+            if (stack.isEmpty()) continue;
+
+            if (GTLItems.VIRTUAL_INGREDIENT.isIn(stack)) {
+                // A wrapper parked here vouches for its payload without the slot ever holding it. The wrapper itself
+                // is not a catalyst, so it must not reach the catalyst map, or recipes would start matching against
+                // the wrapper item instead of what it stands for.
+                AEItemKey payloadItem = VirtualIngredientBehavior.payloadItemKey(stack);
+                if (payloadItem != null) internalSlot.getConfiguredVirtualItems().add(payloadItem);
+                AEFluidKey payloadFluid = VirtualIngredientBehavior.payloadFluidKey(stack);
+                if (payloadFluid != null) internalSlot.getConfiguredVirtualFluids().add(payloadFluid);
+                continue;
             }
+
+            itemCatalystInventory.mergeLong(AEItemKey.of(stack), stack.getCount(), Long::sum);
         }
-        internalInventory[slot].getOnContentsChanged().run();
+        removeSlotFromGTRecipeCache(slot);
+        internalSlot.getOnContentsChanged().run();
     }
 
     private void reCalculateCatalystFluidMap(int slot) {
@@ -465,6 +494,97 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
         }
     }
 
+    public CompoundTag manipulatorSettings() {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("Name", customName);
+        tag.putByteArray("CacheCounts", cacheRecipeCount.clone());
+        tag.putBoolean("Hidden", isHiddenTerminal);
+        tag.putBoolean("KeepByProduct", keepByProduct);
+        tag.putInt("EmbeddedCircuit", embeddedCircuitConfig);
+        tag.putBoolean("SkipExisting", skipExistingCircuitPatterns);
+        tag.putInt("SharedCircuit", IntCircuitBehaviour.getCircuitConfiguration(sharedCircuitInventory.getStackInSlot(0)));
+        return tag;
+    }
+
+    public void applyManipulatorSettings(CompoundTag tag) {
+        setCustomName(tag.getString("Name"));
+        byte[] counts = tag.getByteArray("CacheCounts");
+        System.arraycopy(counts, 0, cacheRecipeCount, 0, Math.min(counts.length, cacheRecipeCount.length));
+        isHiddenTerminal = tag.getBoolean("Hidden");
+        keepByProduct = tag.getBoolean("KeepByProduct");
+        embeddedCircuitConfig = tag.getInt("EmbeddedCircuit");
+        skipExistingCircuitPatterns = tag.getBoolean("SkipExisting");
+        int circuit = tag.getInt("SharedCircuit");
+        sharedCircuitInventory.setStackInSlot(0, circuit > 0 ? IntCircuitBehaviour.stack(circuit) : ItemStack.EMPTY);
+        onChanged();
+    }
+
+    /** Captures paid contents without copying active supply caches or in-flight recipe identities. */
+    public CompoundTag captureManipulatorContents(java.util.Map<AEKey, Long> cost) {
+        CompoundTag tag = new CompoundTag();
+        ListTag slots = new ListTag();
+        for (int slot = 0; slot < internalInventory.length; slot++) {
+            CompoundTag entry = internalInventory[slot].serializeNBT();
+            entry.remove("virtualItemSupply");
+            entry.remove("virtualFluidSupply");
+            entry.remove("virtualCircuit");
+            entry.remove("catalystInventory");
+            entry.remove("catalystFluidInventory");
+            for (Tag t : entry.getList("inventory", Tag.TAG_COMPOUND)) {
+                CompoundTag resource = (CompoundTag) t;
+                org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.add(cost, AEItemKey.fromTag(resource), resource.getLong("real"));
+            }
+            for (Tag t : entry.getList("fluidInventory", Tag.TAG_COMPOUND)) {
+                CompoundTag resource = (CompoundTag) t;
+                org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.add(cost, AEFluidKey.fromTag(resource), resource.getLong("real"));
+            }
+            ListTag items = new ListTag();
+            for (int i = 0; i < catalystItems[slot].getSlots(); i++) {
+                ItemStack stack = catalystItems[slot].getStackInSlot(i);
+                CompoundTag resource = stack.save(new CompoundTag());
+                resource.putInt("Slot", i);
+                items.add(resource);
+                org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.add(cost, stack);
+            }
+            ListTag fluids = new ListTag();
+            for (int i = 0; i < catalystFluids[slot].getTanks(); i++) {
+                var fluid = catalystFluids[slot].getFluidInTank(i);
+                CompoundTag resource = fluid.saveToTag(new CompoundTag());
+                resource.putInt("Slot", i);
+                fluids.add(resource);
+                org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.add(cost, AEFluidKey.of(fluid.getFluid(), fluid.getTag()), fluid.getAmount());
+            }
+            entry.put("CatalystItems", items);
+            entry.put("CatalystFluids", fluids);
+            slots.add(entry);
+        }
+        tag.put("Slots", slots);
+        tag.put("OutputBuffer", org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.save(buffer));
+        buffer.forEach((key, amount) -> org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.add(cost, key, amount));
+        return tag;
+    }
+
+    public void restoreManipulatorContents(CompoundTag tag) {
+        ListTag slots = tag.getList("Slots", Tag.TAG_COMPOUND);
+        for (int slot = 0; slot < slots.size(); slot++) {
+            CompoundTag entry = slots.getCompound(slot);
+            internalInventory[slot].deserializeNBT(entry);
+            for (Tag t : entry.getList("CatalystItems", Tag.TAG_COMPOUND)) {
+                CompoundTag resource = (CompoundTag) t;
+                catalystItems[slot].setStackInSlot(resource.getInt("Slot"), ItemStack.of(resource));
+            }
+            for (Tag t : entry.getList("CatalystFluids", Tag.TAG_COMPOUND)) {
+                CompoundTag resource = (CompoundTag) t;
+                catalystFluids[slot].setFluidInTank(resource.getInt("Slot"), FluidStack.loadFromTag(resource));
+            }
+            reCalculateCatalystItemMap(slot);
+            reCalculateCatalystFluidMap(slot);
+        }
+        buffer.clear();
+        buffer.putAll(org.gtlcore.gtlcore.common.item.manipulator.ManipulatorResources.read(tag.getList("OutputBuffer", Tag.TAG_COMPOUND)));
+        onChanged();
+    }
+
     public CompoundTag copyToTag(CompoundTag tags) {
         var tag = new CompoundTag();
         tag.putString("name", customName);
@@ -486,15 +606,15 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
     }
 
     public boolean pasteFromTag(CompoundTag tag) {
-        this.setCustomName(tag.getString("name"));
-        this.keepByProduct = tag.getBoolean("keepByProduct");
-
         var patternList = tag.getList("patterns", Tag.TAG_COMPOUND);
         int usedCount = 0;
         for (ItemStack ignored : internalPatternInventory) {
             usedCount++;
         }
         if (internalPatternInventory.size() - usedCount < patternList.size()) return false;
+
+        this.setCustomName(tag.getString("name"));
+        this.keepByProduct = tag.getBoolean("keepByProduct");
 
         int listIndex = 0;
         for (int slotIndex = 0; slotIndex < internalPatternInventory.size() && listIndex < patternList.size(); slotIndex++) {
@@ -530,6 +650,7 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
 
         this.sharedCatalystTank.onContentsChanged();
         this.sharedCatalystInventory.onContentsChanged();
+        this.sharedCircuitInventory.onContentsChanged();
 
         releaseProxies();
 
@@ -541,6 +662,7 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
         }
 
         refreshAllByProduct();
+        markDirty();
 
         return true;
     }
@@ -548,9 +670,11 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
     public CompoundTag cutToTag(CompoundTag tags) {
         var tag = new CompoundTag();
         tag.putString("name", customName);
+        tag.putString("dimension", Objects.requireNonNull(getLevel()).dimension().location().toString());
+        tag.putLong("bufferPos", getPos().asLong());
 
         var listPattern = new ListTag();
-        for (int slotIndex : patternSlotMap.values().stream().toList()) {
+        for (int slotIndex = 0; slotIndex < internalPatternInventory.size(); slotIndex++) {
             ItemStack stack = internalPatternInventory.getStackInSlot(slotIndex);
             if (stack.isEmpty()) continue;
 
@@ -571,6 +695,7 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
 
             catalystItems[slotIndex].onContentsChanged();
             catalystFluids[slotIndex].onContentsChanged();
+            cacheRecipeCount[slotIndex] = 1;
         }
         tag.put("patterns", listPattern);
         tag.put("sharedCatalystInventory", sharedCatalystInventory.storage.serializeNBT());
@@ -590,12 +715,15 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
         for (int i = 0; i < sharedCatalystTank.getTanks(); i++) {
             sharedCatalystTank.setFluidInTank(i, FluidStack.empty());
         }
+        sharedCircuitInventory.setStackInSlot(0, ItemStack.EMPTY);
         sharedCatalystInventory.onContentsChanged();
         sharedCatalystTank.onContentsChanged();
+        sharedCircuitInventory.onContentsChanged();
 
         releaseProxies();
 
         tags.put("cut", tag);
+        markDirty();
         return tags;
     }
 
@@ -723,12 +851,17 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
     }
 
     private IPatternDetails getRealPattern(int slot, ItemStack stack) {
-        if (!stack.isEmpty()) {
-            var internalSlot = internalInventory[slot];
-            return realPatternHelper.processPatternWithCircuit(
-                    stack, internalSlot.getCacheManager()::setCircuitCache, getLevel(), keepByProduct);
+        int previousCircuit = patternCircuitConfigs[slot];
+        patternCircuitConfigs[slot] = -1;
+        var pattern = stack.isEmpty() ? null : realPatternHelper.processPatternWithCircuit(
+                stack, circuit -> patternCircuitConfigs[slot] = circuit, getLevel(), keepByProduct);
+        var cache = internalInventory[slot].getCacheManager();
+        if (patternCircuitConfigs[slot] >= 0) {
+            cache.setCircuitCache(patternCircuitConfigs[slot]);
+        } else if (previousCircuit >= 0) {
+            cache.clearCircuitCache();
         }
-        return null;
+        return pattern;
     }
 
     // ========================================
@@ -738,6 +871,29 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
     @Override
     public List<IPatternDetails> getAvailablePatterns() {
         return patternSlotMap.keySet().stream().toList();
+    }
+
+    /** Bounded, read-only context for orders waiting for machine output. */
+    public String gtlcore$graphDiagnostic(IPatternDetails pattern) {
+        Integer slot = getSlotIndexForPattern(pattern);
+        var controllers = new java.util.LinkedHashSet<>(getControllers());
+        for (var proxy : getProxies()) {
+            controllers.addAll(proxy.getControllers());
+            if (controllers.size() >= 8) break;
+        }
+        String state = controllers.isEmpty() ? "NO_FORMED_CONTROLLER" : controllers.stream().limit(8).map(controller -> {
+            var machine = controller.self();
+            return machine.getDefinition().getId() + "@" + machine.getPos() + ":" +
+                    (machine instanceof com.gregtechceu.gtceu.api.machine.feature.IRecipeLogicMachine working ?
+                            working.getRecipeLogic().getStatus() : "connected");
+        }).toList().toString();
+        String inputs = "";
+        if (slot != null && slot >= 0 && slot < internalInventory.length) {
+            InternalSlot buffer = internalInventory[slot];
+            inputs = "; items=" + buffer.getItemInventory().object2LongEntrySet().stream().limit(4).toList() +
+                    "; fluids=" + buffer.getFluidInventory().object2LongEntrySet().stream().limit(4).toList();
+        }
+        return "buffer=" + getPos() + "; online=" + getMainNode().isActive() + "; slot=" + slot + "; controllers=" + state + inputs;
     }
 
     // ========================================
@@ -866,13 +1022,6 @@ public class MEPatternBufferPartMachine extends MEPatternBufferPartMachineBase {
                 }
             }
             return true;
-        }
-
-        @Override
-        public void clearInventories() {
-            super.clearInventories();
-            itemCatalystInventory.clear();
-            fluidCatalystInventory.clear();
         }
 
         @Override

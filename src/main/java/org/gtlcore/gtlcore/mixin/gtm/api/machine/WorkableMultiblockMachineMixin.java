@@ -1,5 +1,6 @@
 package org.gtlcore.gtlcore.mixin.gtm.api.machine;
 
+import org.gtlcore.gtlcore.api.machine.computation.ComputationNetwork;
 import org.gtlcore.gtlcore.api.machine.trait.*;
 import org.gtlcore.gtlcore.api.machine.trait.MEPart.IMEFilterIOPartMachine;
 import org.gtlcore.gtlcore.api.machine.trait.MEPart.IMEPatternPartMachine;
@@ -113,6 +114,19 @@ public abstract class WorkableMultiblockMachineMixin extends MultiblockControlle
      */
     @Overwrite(remap = false)
     public void onWaiting() {}
+
+    /**
+     * The computation coordinator wakes registered consumers when supply returns. Keep the old retry for
+     * third-party recipe paths that have not registered a computation demand.
+     *
+     * @author GTLCore
+     * @reason Retry recipes after remote optical computation becomes available again.
+     */
+    @Overwrite(remap = false)
+    public boolean keepSubscribing() {
+        return recipeLogic instanceof IRecipeStatus status &&
+                RecipeResult.FAIL_NO_ENOUGH_CWU_IN.equals(status.getRecipeStatus()) && !ComputationNetwork.isWaiting(this);
+    }
 
     /**
      * @author .

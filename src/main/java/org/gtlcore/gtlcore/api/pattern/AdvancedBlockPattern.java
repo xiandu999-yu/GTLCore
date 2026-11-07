@@ -1,6 +1,9 @@
 package org.gtlcore.gtlcore.api.pattern;
 
 import org.gtlcore.gtlcore.common.item.UltimateTerminalBehavior;
+import org.gtlcore.gtlcore.integration.ae2.WirelessTerminalGridResolver;
+import org.gtlcore.gtlcore.integration.terminal.StableBlockCandidates;
+import org.gtlcore.gtlcore.mixin.gtm.api.machine.IMultiblockStateInvoker;
 
 import com.gregtechceu.gtceu.api.machine.IMachineBlockEntity;
 import com.gregtechceu.gtceu.api.machine.MetaMachine;
@@ -31,6 +34,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.level.material.FlowingFluid;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.common.util.LazyOptional;
@@ -51,7 +55,6 @@ import appeng.api.stacks.AEFluidKey;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.storage.MEStorage;
 import appeng.blockentity.grid.AENetworkBlockEntity;
-import appeng.items.tools.powered.WirelessTerminalItem;
 import it.unimi.dsi.fastutil.ints.IntObjectPair;
 import it.unimi.dsi.fastutil.objects.*;
 import org.apache.commons.lang3.ArrayUtils;
@@ -63,6 +66,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.function.*;
+import java.util.function.Supplier;
 
 /**
  * 代码参考自gtmthings
@@ -70,6 +74,9 @@ import java.util.function.*;
  */
 
 public class AdvancedBlockPattern extends BlockPattern {
+
+    public static final String MATCHED_REPETITIONS_CONTEXT = "gtlcore:matched_repetitions";
+    public static final String MATCHED_MIN_Z_CONTEXT = "gtlcore:matched_min_z";
 
     static Direction[] FACINGS = { Direction.SOUTH, Direction.NORTH, Direction.WEST, Direction.EAST, Direction.UP,
             Direction.DOWN };
@@ -134,18 +141,24 @@ public class AdvancedBlockPattern extends BlockPattern {
 
     private net.minecraft.world.level.material.Fluid getFluid(ItemStack stack) {
         if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() instanceof LiquidBlock liquidBlock) {
-            return liquidBlock.getFluid();
+            return sourceFluid(liquidBlock.getFluid());
         } else if (stack.getItem() instanceof BucketItem bucketItem) {
-            return bucketItem.getFluid();
+            return sourceFluid(bucketItem.getFluid());
         }
         return null;
+    }
+
+    private static net.minecraft.world.level.material.Fluid sourceFluid(net.minecraft.world.level.material.Fluid fluid) {
+        return fluid instanceof FlowingFluid flowing ? flowing.getSource() : fluid;
     }
 
     public void autoBuild(Player player, MultiblockState worldState,
                           UltimateTerminalBehavior.AutoBuildSetting autoBuildSetting) {
         Level world = player.level();
         int minZ = -centerOffset[4];
-        clearWorldState(worldState);
+        // Terminal probes must not clear the state used by the asynchronous structure checker.
+        MultiblockState buildState = new MultiblockState(world, worldState.controllerPos);
+        clearWorldState(buildState);
         IMultiController controller = worldState.getController();
         BlockPos centerPos = controller.self().getPos();
         Direction facing = controller.self().getFrontFacing();
@@ -153,27 +166,26 @@ public class AdvancedBlockPattern extends BlockPattern {
         boolean isFlipped = autoBuildSetting.isFlipped();
         boolean aeMode = autoBuildSetting.isAeMode();
 
+        Map<Supplier<BlockInfo[]>, BlockInfo[]> candidateCache = new IdentityHashMap<>();
+        // The original transform is linear; resolve the orientation once per build.
+        BlockPos basisX = setActualRelativeOffset(1, 0, 0, facing, upwardsFacing, isFlipped);
+        BlockPos basisY = setActualRelativeOffset(0, 1, 0, facing, upwardsFacing, isFlipped);
+        BlockPos basisZ = setActualRelativeOffset(0, 0, 1, facing, upwardsFacing, isFlipped);
+
         GlobalPos boundCoord = autoBuildSetting.getBoundAE();
         IGrid grid = aeMode ? findBestGrid(world, player, boundCoord) : null;
         var aeInventory = grid != null ? grid.getStorageService().getInventory() : null;
 
         IActionSource source = IActionSource.ofPlayer(player);
 
-        Object2IntOpenHashMap<SimplePredicate> cacheGlobal = new Object2IntOpenHashMap<>(worldState.getGlobalCount());
-        Object2IntOpenHashMap<SimplePredicate> cacheLayer = new Object2IntOpenHashMap<>(worldState.getLayerCount());
+        Object2IntOpenHashMap<SimplePredicate> cacheGlobal = new Object2IntOpenHashMap<>(buildState.getGlobalCount());
+        Object2IntOpenHashMap<SimplePredicate> cacheLayer = new Object2IntOpenHashMap<>(buildState.getLayerCount());
         Object2ObjectOpenHashMap<BlockPos, Object> blocks = new Object2ObjectOpenHashMap<>();
         ObjectOpenHashSet<BlockPos> placeBlockPos = new ObjectOpenHashSet<>();
         blocks.put(centerPos, controller);
         if (controller.isFormed() && autoBuildSetting.isReplaceMode()) controller.onStructureInvalid();
 
-        int[] repeat = new int[this.fingerLength];
-        for (int h = 0; h < this.fingerLength; h++) {
-            var minH = aisleRepetitions[h][0];
-            var maxH = aisleRepetitions[h][1];
-            if (minH != maxH) {
-                repeat[h] = Math.max(minH, Math.min(maxH, autoBuildSetting.getRepeatCount()));
-            } else repeat[h] = minH;
-        }
+        int[] repeat = getConfiguredRepetitions(autoBuildSetting.getRepeatCount());
 
         for (int c = 0, z = minZ, r; c < this.fingerLength; c++) {
             for (r = 0; r < repeat[c]; r++) {
@@ -182,9 +194,11 @@ public class AdvancedBlockPattern extends BlockPattern {
                     for (int a = 0, x = -centerOffset[0]; a < this.palmLength; a++, x++) {
                         TraceabilityPredicate predicate = this.blockMatches[c][b][a];
                         if (predicate.isAny()) continue;
-                        BlockPos pos = setActualRelativeOffset(x, y, z, facing, upwardsFacing, isFlipped)
-                                .offset(centerPos.getX(), centerPos.getY(), centerPos.getZ());
-                        updateWorldState(worldState, pos, predicate);
+                        BlockPos pos = new BlockPos(
+                                centerPos.getX() + basisX.getX() * x + basisY.getX() * y + basisZ.getX() * z,
+                                centerPos.getY() + basisX.getY() * x + basisY.getY() * y + basisZ.getY() * z,
+                                centerPos.getZ() + basisX.getZ() * x + basisY.getZ() * y + basisZ.getZ() * z);
+                        updateWorldState(buildState, pos, predicate);
                         ItemStack itemStack = null;
                         if (!world.isEmptyBlock(pos)) {
                             Block block = world.getBlockState(pos).getBlock();
@@ -192,7 +206,7 @@ public class AdvancedBlockPattern extends BlockPattern {
                                 itemStack = block.asItem().getDefaultInstance();
                             } else {
                                 blocks.put(pos, world.getBlockState(pos));
-                                for (SimplePredicate limit : predicate.limited) limit.testLimited(worldState);
+                                for (SimplePredicate limit : predicate.limited) limit.testLimited(buildState);
                                 continue;
                             }
                         }
@@ -200,13 +214,13 @@ public class AdvancedBlockPattern extends BlockPattern {
                         boolean find = false;
                         BlockInfo[] infos = new BlockInfo[0];
                         for (var limit : predicate.limited) {
-                            if (limit.candidates != null && !autoBuildSetting.isPlaceHatch(limit.candidates.get())) continue;
+                            if (limit.candidates != null && !autoBuildSetting.isPlaceHatch(buildCandidates(candidateCache, limit.candidates))) continue;
                             if (limit.minLayerCount > 0) {
                                 int curr = cacheLayer.getInt(limit);
                                 if (curr < limit.minLayerCount &&
                                         (limit.maxLayerCount == -1 || curr < limit.maxLayerCount)) {
                                     cacheLayer.addTo(limit, 1);
-                                    infos = limit.candidates == null ? null : limit.candidates.get();
+                                    infos = buildCandidates(candidateCache, limit.candidates);
                                     find = true;
                                     break;
                                 }
@@ -214,12 +228,12 @@ public class AdvancedBlockPattern extends BlockPattern {
                         }
                         if (!find) {
                             for (var limit : predicate.limited) {
-                                if (limit.candidates != null && !autoBuildSetting.isPlaceHatch(limit.candidates.get())) continue;
+                                if (limit.candidates != null && !autoBuildSetting.isPlaceHatch(buildCandidates(candidateCache, limit.candidates))) continue;
                                 if (limit.minCount > 0) {
                                     int curr = cacheGlobal.getInt(limit);
                                     if (curr < limit.minCount && (limit.maxCount == -1 || curr < limit.maxCount)) {
                                         cacheGlobal.addTo(limit, 1);
-                                        infos = limit.candidates == null ? null : limit.candidates.get();
+                                        infos = buildCandidates(candidateCache, limit.candidates);
                                         find = true;
                                         break;
                                     }
@@ -228,7 +242,7 @@ public class AdvancedBlockPattern extends BlockPattern {
                         }
                         if (!find) { // no limited
                             for (SimplePredicate limit : predicate.limited) {
-                                if (limit.candidates != null && !autoBuildSetting.isPlaceHatch(limit.candidates.get()))
+                                if (limit.candidates != null && !autoBuildSetting.isPlaceHatch(buildCandidates(candidateCache, limit.candidates)))
                                     continue;
                                 if (limit.maxLayerCount != -1 &&
                                         cacheLayer.getOrDefault(limit, Integer.MAX_VALUE) == limit.maxLayerCount) {
@@ -240,13 +254,13 @@ public class AdvancedBlockPattern extends BlockPattern {
                                 }
                                 cacheLayer.addTo(limit, 1);
                                 cacheGlobal.addTo(limit, 1);
-                                infos = ArrayUtils.addAll(infos, limit.candidates == null ? null : limit.candidates.get());
+                                infos = ArrayUtils.addAll(infos, buildCandidates(candidateCache, limit.candidates));
                             }
                             for (SimplePredicate common : predicate.common) {
-                                if (common.candidates != null && predicate.common.size() > 1 && !autoBuildSetting.isPlaceHatch(common.candidates.get())) {
+                                if (common.candidates != null && predicate.common.size() > 1 && !autoBuildSetting.isPlaceHatch(buildCandidates(candidateCache, common.candidates))) {
                                     continue;
                                 }
-                                infos = ArrayUtils.addAll(infos, common.candidates == null ? null : common.candidates.get());
+                                infos = ArrayUtils.addAll(infos, buildCandidates(candidateCache, common.candidates));
                             }
                         }
 
@@ -374,7 +388,8 @@ public class AdvancedBlockPattern extends BlockPattern {
         }));
     }
 
-    public void dismantleMultiblock(IMultiController controller, Player player, int repeatCountSetting, boolean isFlipped, boolean aeMode, @Nullable GlobalPos boundAE) {
+    public void dismantleMultiblock(IMultiController controller, Player player,
+                                    UltimateTerminalBehavior.AutoBuildSetting autoBuildSetting) {
         var level = player.level();
         // 仅在服务端执行
         if (level.isClientSide()) return;
@@ -383,24 +398,32 @@ public class AdvancedBlockPattern extends BlockPattern {
         Direction facing = controller.self().getFrontFacing();
         Direction upwardsFacing = controller.self().getUpwardsFacing();
 
+        boolean aeMode = autoBuildSetting.isAeMode();
+        GlobalPos boundAE = autoBuildSetting.getBoundAE();
         IGrid grid = aeMode ? findBestGrid(level, player, boundAE) : null;
         var aeInventory = grid != null ? grid.getStorageService().getInventory() : null;
         IActionSource source = IActionSource.ofPlayer(player);
 
-        // 获取多方块状态用于判定方块是否有效
-        MultiblockState worldState = controller.getMultiblockState();
-
-        // 计算重复次数
-        int[] repeat = new int[this.fingerLength];
-        for (int h = 0; h < this.fingerLength; h++) {
-            var minH = this.aisleRepetitions[h][0];
-            var maxH = this.aisleRepetitions[h][1];
-            if (minH != maxH) {
-                repeat[h] = Math.max(minH, Math.min(maxH, repeatCountSetting));
-            } else repeat[h] = minH;
+        // Dismantle matching also needs its own cursor, counts and match context.
+        MultiblockState worldState = new MultiblockState(level, centerPos);
+        DismantleLayout layout = null;
+        if (controller.getPattern().checkPatternAt(worldState, true)) {
+            var matchContext = worldState.getMatchContext();
+            int[] repetitions = matchContext.get(MATCHED_REPETITIONS_CONTEXT);
+            if (repetitions != null && repetitions.length == this.fingerLength &&
+                    matchContext.containsKey(MATCHED_MIN_Z_CONTEXT)) {
+                layout = new DismantleLayout(matchContext.getInt(MATCHED_MIN_Z_CONTEXT), repetitions,
+                        worldState.isNeededFlip(), Integer.MAX_VALUE);
+            }
+        }
+        if (layout == null) {
+            layout = findBestPartialDismantleLayout(level, centerPos, facing, upwardsFacing,
+                    controller.self().allowFlip());
         }
 
-        int minZ = -this.centerOffset[4];
+        int[] repeat = layout.repetitions();
+        int minZ = layout.minZ();
+        boolean isFlipped = layout.isFlipped();
 
         // 遍历模式中的每一个位置
         for (int c = 0, z = minZ; c < this.fingerLength; c++) {
@@ -423,11 +446,14 @@ public class AdvancedBlockPattern extends BlockPattern {
 
                         if (!isBlockValid(blockState, pos, predicate, worldState)) continue;
 
+                        if (autoBuildSetting.shouldPreserveDuringDismantle(blockState.getBlock())) continue;
+
                         if (!blockState.isAir()) {
                             if (level instanceof ServerLevel serverLevel) {
-                                if (blockState.getBlock() instanceof LiquidBlock liquidBlock) {
+                                if (blockState.getBlock() instanceof LiquidBlock) {
                                     if (aeInventory != null) {
-                                        aeInventory.insert(AEFluidKey.of(liquidBlock.getFluid()), FluidType.BUCKET_VOLUME, Actionable.MODULATE, source);
+                                        aeInventory.insert(AEFluidKey.of(sourceFluid(blockState.getFluidState().getType())),
+                                                FluidType.BUCKET_VOLUME, Actionable.MODULATE, source);
                                     }
                                     level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
                                     continue;
@@ -472,6 +498,95 @@ public class AdvancedBlockPattern extends BlockPattern {
         if (controller instanceof WorkableMultiblockMachine machine) {
             machine.onPartUnload();
         }
+    }
+
+    private DismantleLayout findBestPartialDismantleLayout(Level level, BlockPos centerPos, Direction facing,
+                                                           Direction upwardsFacing, boolean allowsFlip) {
+        DismantleLayout normal = findPartialDismantleLayout(level, centerPos, facing, upwardsFacing, false);
+        if (!allowsFlip) return normal;
+        DismantleLayout flipped = findPartialDismantleLayout(level, centerPos, facing, upwardsFacing, true);
+        return flipped.score() > normal.score() ? flipped : normal;
+    }
+
+    private DismantleLayout findPartialDismantleLayout(Level level, BlockPos centerPos, Direction facing,
+                                                       Direction upwardsFacing, boolean isFlipped) {
+        int controllerAisle = this.centerOffset[2];
+        int[] repetitions = new int[this.fingerLength];
+        MultiblockState probeState = new MultiblockState(level, centerPos);
+        int score = 0;
+
+        int z = 0;
+        for (int aisle = controllerAisle; aisle < this.fingerLength; aisle++) {
+            int count = findPartialRepetitions(level, centerPos, facing, upwardsFacing, isFlipped, probeState,
+                    aisle, z, 1);
+            repetitions[aisle] = count;
+            for (int repeat = 0; repeat < count; repeat++) {
+                score += scoreSlice(level, centerPos, facing, upwardsFacing, isFlipped, probeState, aisle,
+                        z + repeat);
+            }
+            z += count;
+        }
+
+        z = -1;
+        for (int aisle = controllerAisle - 1; aisle >= 0; aisle--) {
+            int count = findPartialRepetitions(level, centerPos, facing, upwardsFacing, isFlipped, probeState,
+                    aisle, z, -1);
+            repetitions[aisle] = count;
+            for (int repeat = 0; repeat < count; repeat++) {
+                score += scoreSlice(level, centerPos, facing, upwardsFacing, isFlipped, probeState, aisle,
+                        z - repeat);
+            }
+            z -= count;
+        }
+        return new DismantleLayout(z + 1, repetitions, isFlipped, score);
+    }
+
+    private int findPartialRepetitions(Level level, BlockPos centerPos, Direction facing, Direction upwardsFacing,
+                                       boolean isFlipped, MultiblockState probeState, int aisle, int startZ,
+                                       int step) {
+        int min = this.aisleRepetitions[aisle][0];
+        int max = this.aisleRepetitions[aisle][1];
+        if (min == max) return min;
+
+        int adjacentAisle = aisle + step;
+        int count = 0;
+        while (count < max) {
+            int z = startZ + count * step;
+            int currentScore = scoreSlice(level, centerPos, facing, upwardsFacing, isFlipped, probeState, aisle, z);
+            int adjacentScore = adjacentAisle >= 0 && adjacentAisle < this.fingerLength ?
+                    scoreSlice(level, centerPos, facing, upwardsFacing, isFlipped, probeState, adjacentAisle, z) : 0;
+            if (adjacentScore > currentScore || currentScore == 0 && count >= min) break;
+            count++;
+        }
+        return count;
+    }
+
+    private int scoreSlice(Level level, BlockPos centerPos, Direction facing, Direction upwardsFacing,
+                           boolean isFlipped, MultiblockState probeState, int aisle, int z) {
+        int score = 0;
+        for (int b = 0, y = -this.centerOffset[1]; b < this.thumbLength; b++, y++) {
+            for (int a = 0, x = -this.centerOffset[0]; a < this.palmLength; a++, x++) {
+                TraceabilityPredicate predicate = this.blockMatches[aisle][b][a];
+                if (predicate.isAny()) continue;
+                BlockPos pos = setActualRelativeOffset(x, y, z, facing, upwardsFacing, isFlipped)
+                        .offset(centerPos.getX(), centerPos.getY(), centerPos.getZ());
+                BlockState blockState = level.getBlockState(pos);
+                if (!blockState.isAir() && isBlockValid(blockState, pos, predicate, probeState)) score++;
+            }
+        }
+        return score;
+    }
+
+    private record DismantleLayout(int minZ, int[] repetitions, boolean isFlipped, int score) {}
+
+    private int[] getConfiguredRepetitions(int repeatCount) {
+        int[] repetitions = new int[this.fingerLength];
+        for (int aisle = 0; aisle < this.fingerLength; aisle++) {
+            int min = this.aisleRepetitions[aisle][0];
+            int max = this.aisleRepetitions[aisle][1];
+            repetitions[aisle] = min == max ? min : Math.max(min, Math.min(max, repeatCount));
+        }
+        return repetitions;
     }
 
     private boolean isBlockValid(BlockState current, BlockPos pos, TraceabilityPredicate predicate, MultiblockState tempState) {
@@ -549,33 +664,7 @@ public class AdvancedBlockPattern extends BlockPattern {
                 }
             }
         }
-        return findWirelessTerminalGrid(player, level);
-    }
-
-    @Nullable
-    private IGrid findWirelessTerminalGrid(Player player, Level level) {
-        IItemHandler handler = player.getCapability(ForgeCapabilities.ITEM_HANDLER).resolve().orElse(null);
-        if (handler == null) return null;
-        return findWirelessTerminalGrid(handler, level, Collections.newSetFromMap(new IdentityHashMap<>()));
-    }
-
-    @Nullable
-    private IGrid findWirelessTerminalGrid(IItemHandler handler, Level level, Set<IItemHandler> visited) {
-        if (handler == null || !visited.add(handler)) return null;
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack stack = handler.getStackInSlot(i);
-            if (stack.isEmpty()) continue;
-
-            if (stack.getItem() instanceof WirelessTerminalItem terminal) {
-                IGrid grid = terminal.getLinkedGrid(stack, level, null);
-                if (grid != null) return grid;
-            }
-
-            IItemHandler nested = stack.getCapability(ForgeCapabilities.ITEM_HANDLER).resolve().orElse(null);
-            IGrid nestedGrid = findWirelessTerminalGrid(nested, level, visited);
-            if (nestedGrid != null) return nestedGrid;
-        }
-        return null;
+        return WirelessTerminalGridResolver.find(player, level);
     }
 
     private boolean canInsertItemIntoAE(@Nullable MEStorage aeInventory, ItemStack stack, IActionSource source) {
@@ -691,21 +780,17 @@ public class AdvancedBlockPattern extends BlockPattern {
     }
 
     private void clearWorldState(MultiblockState worldState) {
-        try {
-            Class<?> clazz = Class.forName("com.gregtechceu.gtceu.api.pattern.MultiblockState");
-            Method method = clazz.getDeclaredMethod("clean");
-            method.setAccessible(true);
-            method.invoke(worldState);
-        } catch (Exception ignored) {}
+        ((IMultiblockStateInvoker) worldState).cleanState();
     }
 
     private void updateWorldState(MultiblockState worldState, BlockPos posIn, TraceabilityPredicate predicate) {
-        try {
-            Class<?> clazz = Class.forName("com.gregtechceu.gtceu.api.pattern.MultiblockState");
-            Method method = clazz.getDeclaredMethod("update", BlockPos.class, TraceabilityPredicate.class);
-            method.setAccessible(true);
-            method.invoke(worldState, posIn, predicate);
-        } catch (Exception ignored) {}
+        ((IMultiblockStateInvoker) worldState).updateState(posIn, predicate);
+    }
+
+    private static BlockInfo[] buildCandidates(Map<Supplier<BlockInfo[]>, BlockInfo[]> cache,
+                                               Supplier<BlockInfo[]> supplier) {
+        if (supplier == null) return null;
+        return StableBlockCandidates.contains(supplier) ? cache.computeIfAbsent(supplier, Supplier::get) : supplier.get();
     }
 
     private BlockPos setActualRelativeOffset(int x, int y, int z, Direction facing, Direction upwardsFacing,

@@ -49,7 +49,7 @@ public abstract class ExportOnlyAEStockingFluidListMixin extends ExportOnlyAEFlu
     protected IntArrayList gTLCore$configIndexList;
 
     @Unique
-    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.enableUltimateMEStocking;
+    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.machines.enableUltimateMEStocking;
 
     @SuppressWarnings("target")
     @Shadow(remap = false)
@@ -84,6 +84,9 @@ public abstract class ExportOnlyAEStockingFluidListMixin extends ExportOnlyAEFlu
     @Override
     public List<FluidIngredient> handleRecipeInner(IO io, GTRecipe recipe, List<FluidIngredient> left, @Nullable String slotName, boolean simulate) {
         if (io != IO.IN || left.isEmpty()) {
+            return left;
+        }
+        if (!this$0.isWorkingEnabled()) {
             return left;
         }
         IGrid grid = this$0.getMainNode().getGrid();

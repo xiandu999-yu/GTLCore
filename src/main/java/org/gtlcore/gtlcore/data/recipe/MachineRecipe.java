@@ -48,13 +48,17 @@ import static com.gregtechceu.gtceu.common.data.GTRecipeTypes.ASSEMBLER_RECIPES;
 import static com.gregtechceu.gtceu.common.data.GTRecipeTypes.ASSEMBLY_LINE_RECIPES;
 import static com.gregtechceu.gtceu.data.recipe.CraftingComponent.*;
 import static com.gregtechceu.gtceu.data.recipe.misc.MetaTileEntityLoader.registerMachineRecipe;
-import static org.gtlcore.gtlcore.common.data.GTLMachines.GTAEMachines.ME_EXTEND_PATTERN_BUFFER;
-import static org.gtlcore.gtlcore.common.data.GTLMachines.TAG_FILTER_ME_STOCK_BUS_PART_MACHINE;
+import static org.gtlcore.gtlcore.common.data.GTLBlocks.CRAFTING_STORAGE_MAX;
+import static org.gtlcore.gtlcore.common.data.GTLItems.CIRCUIT_INFINITY_CELL;
+import static org.gtlcore.gtlcore.common.data.GTLMachines.*;
+import static org.gtlcore.gtlcore.common.data.GTLMachines.GTAEMachines.*;
 import static org.gtlcore.gtlcore.common.data.GTLMaterials.*;
 import static org.gtlcore.gtlcore.common.data.GTLRecipeTypes.SPACE_COSMIC_PROBE_RECEIVERS_RECIPES;
-import static org.gtlcore.gtlcore.integration.ae2.wireless.GTLWirelessAeContent.WIRELESS_NETWORK_BOOKMARK;
-import static org.gtlcore.gtlcore.integration.ae2.wireless.GTLWirelessAeContent.WIRELESS_NETWORK_CORE;
+import static org.gtlcore.gtlcore.common.data.machines.AdditionalMultiBlockMachine.TRANSFINITE_COMPUTATION_ARRAY;
+import static org.gtlcore.gtlcore.integration.ae2.wireless.GTLWirelessAeContent.*;
+import static org.gtlcore.gtlcore.integration.wildcard.WildcardPatternCompatImpl.ME_STOCKING_WILDCARD_PATTERN_BUFFER;
 import static org.gtlcore.gtlcore.integration.wildcard.WildcardPatternCompatImpl.ME_WILDCARD_PATTERN_BUFFER;
+import static org.gtlcore.gtlcore.utils.Registries.getItem;
 
 public class MachineRecipe {
 
@@ -100,12 +104,31 @@ public class MachineRecipe {
                 .duration(400).EUt(480).save(provider);
 
         ASSEMBLER_RECIPES.recipeBuilder("adv")
-                .inputItems(AdvancedMultiBlockMachine.FLUID_DRILLING_RIG[ZPM])
+                .inputItems(AdvancedMultiBlockMachineB.FLUID_DRILLING_RIG[ZPM])
                 .inputItems(CIRCUIT.getIngredient(UEV), 4)
                 .inputItems(CONVEYOR_MODULE_UHV, 4)
                 .inputItems(FLUID_REGULATOR_UHV, 4)
-                .outputItems(AdvancedMultiBlockMachine.ADVANCED_INFINITE_DRILLER)
+                .outputItems(AdvancedMultiBlockMachineB.ADVANCED_INFINITE_DRILLER)
                 .duration(400).EUt(V[UEV]).save(provider);
+
+        ASSEMBLER_RECIPES.recipeBuilder("virtual_ingredient")
+                .inputItems(ROBOT_ARM_IV, 2)
+                .inputItems(FLUID_REGULATOR_IV, 2)
+                .inputItems(TagPrefix.plate, Duranium, 4)
+                .inputItems(CustomTags.LuV_CIRCUITS, 2)
+                .inputFluids(SolderingAlloy.getFluid(1440))
+                .outputItems(GTLItems.VIRTUAL_INGREDIENT)
+                .duration(200).EUt(VA[EV]).save(provider);
+
+        ASSEMBLER_RECIPES.recipeBuilder("virtual_ingredient_supply_machine")
+                .inputItems(GTMachines.HULL[LuV])
+                .inputItems(FIELD_GENERATOR_IV, 16)
+                .inputItems(plateDouble, UraniumRhodiumDinaquadide, 8)
+                .inputItems(CustomTags.ZPM_CIRCUITS, 4)
+                .inputItems(CIRCUIT_INFINITY_CELL)
+                .inputFluids(SolderingAlloy.getFluid(1440))
+                .outputItems(VIRTUAL_INGREDIENT_SUPPLY_MACHINE)
+                .duration(400).EUt(VA[LuV]).save(provider);
 
         ASSEMBLER_RECIPES.recipeBuilder("block_bus")
                 .inputItems(CONVEYOR_MODULE_LuV, 2)
@@ -141,7 +164,7 @@ public class MachineRecipe {
         ASSEMBLER_RECIPES.recipeBuilder("conversion_simulate_card")
                 .inputItems(FIELD_GENERATOR_LuV)
                 .inputItems(AEItems.SPEED_CARD, 2)
-                .inputItems(AdvancedMultiBlockMachine.BLOCK_CONVERSION_ROOM, 1)
+                .inputItems(AdvancedMultiBlockMachineA.BLOCK_CONVERSION_ROOM, 1)
                 .inputItems(CIRCUIT.getIngredient(LuV), 2)
                 .inputFluids(SolderingAlloy.getFluid(L))
                 .outputItems(GTLItems.CONVERSION_SIMULATE_CARD)
@@ -259,7 +282,7 @@ public class MachineRecipe {
                 .inputItems(GTItems.ELECTRIC_PUMP_UV, 4)
                 .inputItems(gear, Neutronium, 4)
                 .circuitMeta(2)
-                .outputItems(AdvancedMultiBlockMachine.FLUID_DRILLING_RIG[ZPM])
+                .outputItems(AdvancedMultiBlockMachineB.FLUID_DRILLING_RIG[ZPM])
                 .duration(400).EUt(VA[UV]).save(provider);
 
         ASSEMBLER_RECIPES.recipeBuilder("wood_distillation")
@@ -372,9 +395,9 @@ public class MachineRecipe {
                 GTItems.FIELD_GENERATOR_UIV.asStack(), 'H', GTMachines.HULL[13].asStack());
 
         VanillaRecipeHelper.addShapedRecipe(provider, true, "large_block_conversion_room",
-                AdvancedMultiBlockMachine.LARGE_BLOCK_CONVERSION_ROOM.asStack(), "SES", "EHE", "SES",
+                AdvancedMultiBlockMachineA.LARGE_BLOCK_CONVERSION_ROOM.asStack(), "SES", "EHE", "SES",
                 'S', GTItems.SENSOR_ZPM.asStack(), 'E', GTItems.EMITTER_ZPM.asStack(), 'H',
-                AdvancedMultiBlockMachine.BLOCK_CONVERSION_ROOM.asStack());
+                AdvancedMultiBlockMachineA.BLOCK_CONVERSION_ROOM.asStack());
 
         List<ItemEntry<ComponentItem>> WIRELESS_ENERGY_RECEIVE_COVER = List.of(
                 CustomItems.WIRELESS_ENERGY_RECEIVE_COVER_LV,
@@ -636,6 +659,16 @@ public class MachineRecipe {
                 .save(provider);
 
         ASSEMBLER_RECIPES
+                .recipeBuilder(GTLCore.id("me_input_assembly"))
+                .inputItems(GTLMachines.GTAEMachines.ITEM_IMPORT_BUS_ME, 2)
+                .inputItems(GTLMachines.GTAEMachines.FLUID_IMPORT_HATCH_ME, 2)
+                .inputItems(CustomTags.EV_CIRCUITS)
+                .inputFluids(GTMaterials.SolderingAlloy.getFluid(1440))
+                .outputItems(GTLMachines.ME_INPUT_ASSEMBLY)
+                .duration(100).EUt(VA[HV])
+                .save(provider);
+
+        ASSEMBLER_RECIPES
                 .recipeBuilder(GTLCore.id("heat_sensor"))
                 .inputItems(GTLMachines.GTAEMachines.STOCKING_IMPORT_BUS_ME, 2)
                 .inputItems(GTLMachines.GTAEMachines.STOCKING_IMPORT_HATCH_ME, 2)
@@ -652,19 +685,19 @@ public class MachineRecipe {
                 .inputItems(CIRCUIT.getIngredient(MAX), 16)
                 .inputItems(ChemicalHelper.get(rod, GTLMaterials.Infinity), 32)
                 .inputItems(ChemicalHelper.get(plateDouble, GTLMaterials.Starmetal), 32)
-                .inputItems(AdvancedMultiBlockMachine.SPACE_PROBE_SURFACE_RECEPTION, 8)
+                .inputItems(AdvancedMultiBlockMachineA.SPACE_PROBE_SURFACE_RECEPTION, 8)
                 .inputItems(GTLBlocks.ADVANCED_FUSION_COIL, 16)
-                .inputItems(Registries.getItem("kubejs:awakened_core"), 16)
+                .inputItems(getItem("kubejs:awakened_core"), 16)
                 .inputItems(ChemicalHelper.get(GTLTagPrefix.nanoswarm, GTLMaterials.BlackDwarfMatter), 64)
                 .inputItems(ChemicalHelper.get(GTLTagPrefix.nanoswarm, GTLMaterials.WhiteDwarfMatter), 64)
                 .inputItems(GTLItems.INSANELY_ULTIMATE_BATTERY)
                 .inputFluids(GTLMaterials.SuperMutatedLivingSolder.getFluid(32000))
                 .inputFluids(GTLMaterials.Periodicium.getFluid(16000))
-                .stationResearch(b -> b.researchStack(AdvancedMultiBlockMachine.SPACE_PROBE_SURFACE_RECEPTION.asStack())
+                .stationResearch(b -> b.researchStack(AdvancedMultiBlockMachineA.SPACE_PROBE_SURFACE_RECEPTION.asStack())
                         .dataStack(GTItems.TOOL_DATA_MODULE.asStack())
                         .EUt(VA[UXV])
                         .CWUt(2048))
-                .outputItems(AdvancedMultiBlockMachine.SPACE_COSMIC_PROBE_RECEIVERS)
+                .outputItems(AdvancedMultiBlockMachineA.SPACE_COSMIC_PROBE_RECEIVERS)
                 .duration(2000)
                 .EUt(GTValues.VA[OpV])
                 .save(provider);
@@ -703,6 +736,28 @@ public class MachineRecipe {
                         .CWUt(2048))
                 .addData("SEPMTier", 5)
                 .duration(200).EUt(V[UXV]).save(provider);
+
+        ASSEMBLY_LINE_RECIPES.recipeBuilder("transfinite_computation_array")
+                .inputItems(frameGt, Adamantium, 16)
+                .inputItems(FIELD_GENERATOR_UHV, 8)
+                .inputItems(GTLItems.REALLY_ULTIMATE_BATTERY)
+                .inputItems(CustomTags.UEV_CIRCUITS, 16)
+                .inputItems(CRAFTING_STORAGE_MAX.asStack(), 16)
+                .inputItems(Registries.getItemStack("mae2:256x_crafting_accelerator", 64))
+                .inputItems(Registries.getItemStack("mae2:256x_crafting_accelerator", 64))
+                .inputItems(wireFine, Enderite, 32)
+                .inputItems(wireFine, Enderite, 32)
+                .inputItems(plate, Highurabilityompoundteel, 16)
+                .inputFluids(EuvPhotoresist.getFluid(3000))
+                .inputFluids(Seaborgium.getFluid(2304))
+                .inputFluids(Dubnium.getFluid(2304))
+                .inputFluids(Kevlar.getFluid(14400))
+                .outputItems(TRANSFINITE_COMPUTATION_ARRAY)
+                .EUt(VA[UEV]).duration(1200)
+                .stationResearch(b -> b
+                        .researchStack(CRAFTING_STORAGE_MAX.asStack())
+                        .dataStack(TOOL_DATA_MODULE.asStack()).EUt(VA[UHV]).CWUt(256))
+                .save(provider);
 
         ASSEMBLY_LINE_RECIPES.recipeBuilder("advanced_vacuum_drying_furnace")
                 .inputItems(CIRCUIT.getIngredient(UIV), 32)
@@ -743,7 +798,7 @@ public class MachineRecipe {
                 .inputItems(ChemicalHelper.get(gearSmall, GTLMaterials.Vibramantium), 32)
                 .inputItems(ChemicalHelper.get(rod, GTLMaterials.Vibramantium), 16)
                 .inputItems(ChemicalHelper.get(screw, GTLMaterials.Vibramantium), 16)
-                .inputItems(Registries.getItem("kubejs:x_ray_laser"), 1)
+                .inputItems(getItem("kubejs:x_ray_laser"), 1)
                 .inputFluids(SolderingAlloy.getFluid(16000))
                 .inputFluids(GTLMaterials.MutatedLivingSolder.getFluid(16000))
                 .inputFluids(GTLMaterials.Photopolymer.getFluid(8000))
@@ -758,23 +813,45 @@ public class MachineRecipe {
         ASSEMBLY_LINE_RECIPES.recipeBuilder("advanced_neutron_activator")
                 .inputItems(CIRCUIT.getIngredient(UXV), 32)
                 .inputItems(ChemicalHelper.get(frameGt, GTLMaterials.BlackTitanium), 32)
-                .inputItems(AdvancedMultiBlockMachine.NEUTRON_ACTIVATOR, 16)
+                .inputItems(AdvancedMultiBlockMachineB.NEUTRON_ACTIVATOR, 16)
                 .inputItems(GTLMachines.NEUTRON_COMPRESSOR, 16)
                 .inputItems(GTLMachines.NEUTRON_ACCELERATOR[UHV], 8)
                 .inputItems(GTLMachines.NEUTRON_ACCELERATOR[UEV], 8)
                 .inputItems(GTLMachines.NEUTRON_ACCELERATOR[UIV], 8)
                 .inputItems(GTLItems.EXTREMELY_ULTIMATE_BATTERY)
-                .inputItems(Registries.getItem("kubejs:wyvern_core"), 4)
+                .inputItems(getItem("kubejs:wyvern_core"), 4)
                 .inputFluids(GTLMaterials.SuperMutatedLivingSolder.getFluid(16000))
                 .inputFluids(GTLMaterials.MutatedLivingSolder.getFluid(16000))
                 .inputFluids(GTMaterials.Oganesson.getFluid(1296))
                 .inputFluids(GTLMaterials.Vibranium.getFluid(1296))
                 .outputItems(AdditionalMultiBlockMachine.ADVANCED_NEUTRON_ACTIVATOR)
-                .stationResearch(b -> b.researchStack(AdvancedMultiBlockMachine.NEUTRON_ACTIVATOR.asStack())
+                .stationResearch(b -> b.researchStack(AdvancedMultiBlockMachineB.NEUTRON_ACTIVATOR.asStack())
                         .dataStack(GTItems.TOOL_DATA_MODULE.asStack())
                         .EUt(VA[UXV])
                         .CWUt(512))
                 .duration(400).EUt(V[UXV]).save(provider);
+
+        ASSEMBLY_LINE_RECIPES.recipeBuilder("me_recipe_pattern_buffer")
+                .inputItems(ME_FINAL_PATTERN_BUFFER)
+                .inputItems(HULL.getIngredient(UXV))
+                .inputItems(getItem("kubejs:fm_chip"), 32)
+                .inputItems(EMITTER_UXV, 8)
+                .inputItems(SENSOR_UXV, 8)
+                .inputItems(CIRCUIT.getIngredient(UXV), 4)
+                .inputItems(getItem("kubejs:ultrashort_pulse_laser"), 4)
+                .inputItems(getItem("kubejs:wyvern_core"), 8)
+                .inputItems(plateDouble, Legendarium, 4)
+                .inputItems(plateDouble, CelestialTungsten, 4)
+                .inputFluids(SuperMutatedLivingSolder.getFluid(1152))
+                .inputFluids(Sunnarium.getFluid(2000))
+                .inputFluids(CosmicSuperconductor.getFluid(1000))
+                .inputFluids(GammaRaysPhotoresist.getFluid(10000))
+                .outputItems(ME_RECIPE_PATTERN_BUFFER)
+                .stationResearch(b -> b.researchStack(ME_FINAL_PATTERN_BUFFER.asStack())
+                        .dataStack(GTItems.TOOL_DATA_MODULE.asStack())
+                        .EUt(GTValues.VA[GTValues.UEV])
+                        .CWUt(576))
+                .EUt(VA[UIV]).duration(600).save(provider);
 
         if (ModList.get().isLoaded("wildcard_pattern")) {
             ASSEMBLY_LINE_RECIPES.recipeBuilder("me_wildcard_pattern_buffer")
@@ -782,9 +859,9 @@ public class MachineRecipe {
                     .inputItems(EMITTER_UHV, 4)
                     .inputItems(CIRCUIT.getIngredient(UEV), 16)
                     .inputItems(TAG_FILTER_ME_STOCK_BUS_PART_MACHINE, 4)
-                    .inputItems(Registries.getItem("kubejs:low_frequency_laser"), 8)
-                    .inputItems(Registries.getItem("kubejs:medium_frequency_laser"), 8)
-                    .inputItems(Registries.getItem("kubejs:high_frequency_laser"), 8)
+                    .inputItems(getItem("kubejs:low_frequency_laser"), 8)
+                    .inputItems(getItem("kubejs:medium_frequency_laser"), 8)
+                    .inputItems(getItem("kubejs:high_frequency_laser"), 8)
                     .inputItems(ORE_DICTIONARY_FILTER, 32)
                     .inputItems(TAG_FLUID_FILTER, 32)
                     .inputItems(plate, Kevlar, 8)
@@ -800,6 +877,27 @@ public class MachineRecipe {
                             .dataStack(GTItems.TOOL_DATA_MODULE.asStack())
                             .EUt(GTValues.VA[GTValues.UEV])
                             .CWUt(256))
+                    .save(provider);
+
+            ASSEMBLY_LINE_RECIPES.recipeBuilder("me_stocking_wildcard_pattern_buffer")
+                    .inputItems(HULL.getIngredient(UIV))
+                    .inputItems(ME_WILDCARD_PATTERN_BUFFER, 2)
+                    .inputItems(ME_STOCKING_PATTERN_BUFFER, 2)
+                    .inputItems(EMITTER_UEV, 16)
+                    .inputItems(CIRCUIT.getIngredient(UIV), 16)
+                    .inputItems(FullerenePolymerMatrixPulp, 8)
+                    .inputItems(getItem("kubejs:rydberg_spinorial_assembly"), 8)
+                    .inputItems(plate, EchoShard, 16)
+                    .inputFluids(SuperMutatedLivingSolder.getFluid(1440))
+                    .inputFluids(CaliforniumCyclopentadienide.getFluid(1500))
+                    .inputFluids(UuAmplifier.getFluid(576))
+                    .outputItems(ME_STOCKING_WILDCARD_PATTERN_BUFFER)
+                    .EUt(GTValues.VA[GTValues.UEV])
+                    .duration(600)
+                    .stationResearch(b -> b.researchStack(ME_STOCKING_PATTERN_BUFFER.asStack())
+                            .dataStack(GTItems.TOOL_DATA_MODULE.asStack())
+                            .EUt(GTValues.VA[GTValues.UEV])
+                            .CWUt(432))
                     .save(provider);
         }
 
@@ -837,12 +935,30 @@ public class MachineRecipe {
                 .inputItems(EMITTER_EV, 4)
                 .outputItems(WIRELESS_NETWORK_BOOKMARK)
                 .duration(400).EUt(VA[EV]).save(provider);
+
+        ASSEMBLER_RECIPES.recipeBuilder("wireless_network_binding_tool")
+                .circuitMeta(1)
+                .inputItems(WIRELESS_TOOL.asItem())
+                .inputItems(CIRCUIT.getIngredient(EV))
+                .inputItems(EMITTER_EV)
+                .outputItems(WIRELESS_NETWORK_BINDING_TOOL.get())
+                .duration(200).EUt(VA[EV]).save(provider);
+
+        ASSEMBLER_RECIPES.recipeBuilder("wireless_charging_station")
+                .inputItems(GTMachines.HULL[3])
+                .inputItems(FIELD_GENERATOR_LV, 4)
+                .inputItems(CIRCUIT.getIngredient(HV), 8)
+                .inputItems(EMITTER_HV, 2)
+                .inputItems(wireFine, AnnealedCopper, 2)
+                .inputFluids(Polytetrafluoroethylene.getFluid(1080))
+                .outputItems(WIRELESS_CHARGING_STATION)
+                .duration(200).EUt(VA[HV]).save(provider);
     }
 
     private static void space_probe(Material material, int grade, int amount, int circuit, Consumer<FinishedRecipe> provider) {
         SPACE_COSMIC_PROBE_RECEIVERS_RECIPES
                 .recipeBuilder(GTLCore.id("space_cosmic_probe_receivers_" + material.getName()))
-                .notConsumable(Registries.getItem("kubejs:space_probe_mk" + grade))
+                .notConsumable(getItem("kubejs:space_probe_mk" + grade))
                 .outputFluids(material.getFluid(amount))
                 .EUt((long) (VA[UEV] * Math.pow(4, grade)))
                 .duration(200)

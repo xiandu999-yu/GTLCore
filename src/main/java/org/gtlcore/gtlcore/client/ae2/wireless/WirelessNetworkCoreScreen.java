@@ -40,8 +40,8 @@ public class WirelessNetworkCoreScreen extends AbstractContainerScreen<WirelessN
                 Component.translatable("field.gtlcore.wireless_core.name"));
         this.nameField.setMaxLength(32);
         this.nameField.setBordered(false);
-        this.nameField.setTextColor(0xFFFFFFFF);
-        this.nameField.setTextColorUneditable(0xFFAAAAAA);
+        this.nameField.setTextColor(WirelessAeStyle.TEXT_FIELD_TEXT);
+        this.nameField.setTextColorUneditable(WirelessAeStyle.TEXT_FIELD_UNEDITABLE);
         this.nameField.setValue(this.menu.getNetworkName());
         this.addRenderableWidget(this.nameField);
 
@@ -55,6 +55,17 @@ public class WirelessNetworkCoreScreen extends AbstractContainerScreen<WirelessN
                             new WirelessAePackets.RenameNetworkPacket(this.menu.getPos(), this.nameField.getValue()));
                     this.onClose();
                 }));
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (this.nameField.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (this.nameField.isFocused() && keyCode == this.minecraft.options.keyInventory.getKey().getValue()) {
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override

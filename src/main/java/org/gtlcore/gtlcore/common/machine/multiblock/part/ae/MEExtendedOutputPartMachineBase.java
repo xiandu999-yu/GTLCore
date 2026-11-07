@@ -60,8 +60,8 @@ public abstract class MEExtendedOutputPartMachineBase extends MEIOPartMachine im
     protected static final ManagedFieldHolder MANAGED_FIELD_HOLDER = new ManagedFieldHolder(
             MEExtendedOutputPartMachineBase.class, MEIOPartMachine.MANAGED_FIELD_HOLDER);
 
-    protected final static int MIN_FREQUENCY = ConfigHolder.INSTANCE.MEPatternOutputMin;
-    protected final static int MAX_FREQUENCY = ConfigHolder.INSTANCE.MEPatternOutputMax;
+    protected final static int MIN_FREQUENCY = ConfigHolder.INSTANCE.machines.MEPatternOutputMin;
+    protected final static int MAX_FREQUENCY = ConfigHolder.INSTANCE.machines.MEPatternOutputMax;
 
     @Getter
     protected final Object2LongOpenHashMap<AEKey> buffer = new Object2LongOpenHashMap<>();
@@ -131,6 +131,12 @@ public abstract class MEExtendedOutputPartMachineBase extends MEIOPartMachine im
         }
     }
 
+    public void setTerminalPriority(int priority) {
+        setPriority(Math.max(10, Math.min(100_000, priority)));
+        markDirty();
+        updatePriority();
+    }
+
     // ========================================
     // DataStick Copy
     // ========================================
@@ -161,13 +167,13 @@ public abstract class MEExtendedOutputPartMachineBase extends MEIOPartMachine im
         return true;
     }
 
-    protected CompoundTag writeConfigToTag() {
+    public CompoundTag writeConfigToTag() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("priority", priority);
         return tag;
     }
 
-    protected void readConfigFromTag(CompoundTag tag) {
+    public void readConfigFromTag(CompoundTag tag) {
         if (tag.contains("priority")) {
             this.priority = tag.getInt("priority");
         }
@@ -178,8 +184,23 @@ public abstract class MEExtendedOutputPartMachineBase extends MEIOPartMachine im
     // Persist
     // ========================================
 
+    protected void flushAsyncQueue() {}
+
+    public void prepareManipulatorSnapshot() {
+        flushAsyncQueue();
+    }
+
+    public void restoreManipulatorBuffer(java.util.Map<AEKey, Long> contents) {
+        buffer.clear();
+        buffer.putAll(contents);
+        notifyHandlers();
+        getMETrait().notifySelfIO();
+        markDirty();
+    }
+
     @Override
     public void saveCustomPersistedData(@NotNull CompoundTag tag, boolean forDrop) {
+        flushAsyncQueue();
         super.saveCustomPersistedData(tag, forDrop);
         if (buffer.isEmpty()) return;
         ListTag listTag = AEUtils.createListTag(AEKey::toTagGeneric, buffer);

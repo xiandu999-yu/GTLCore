@@ -38,6 +38,7 @@ public class NeutronSensorPartMachine extends TieredPartMachine {
     protected static final ManagedFieldHolder MANAGED_FIELD_HOLDER = new ManagedFieldHolder(
             NeutronSensorPartMachine.class, TieredPartMachine.MANAGED_FIELD_HOLDER);
 
+    @Getter
     @Setter
     @Persisted
     @DescSynced
@@ -61,10 +62,10 @@ public class NeutronSensorPartMachine extends TieredPartMachine {
         var group = new WidgetGroup(Position.ORIGIN, new Size(176, 112));
 
         group.addWidget(new TextBoxWidget(8, 35, 65,
-                List.of(LocalizationUtils.format("最小中子动能\n(%s)", "MeV"))));
+                List.of(LocalizationUtils.format("gui.gtlcore.neutron_sensor.min_energy", "MeV"))));
 
         group.addWidget(new TextBoxWidget(8, 80, 65,
-                List.of(LocalizationUtils.format("最大中子动能\n(%s)", "MeV"))));
+                List.of(LocalizationUtils.format("gui.gtlcore.neutron_sensor.max_energy", "MeV"))));
 
         group.addWidget(new TextFieldWidget(80, 35, 85, 18, () -> toText(min),
                 stringValue -> setMin(Mth.clamp(fromText(stringValue), 0, max))).setNumbersOnly(0, max));

@@ -6,6 +6,7 @@ import org.gtlcore.gtlcore.api.machine.trait.AECraft.IMECraftPatternContainer;
 import org.gtlcore.gtlcore.common.data.GTLMachines;
 import org.gtlcore.gtlcore.common.machine.multiblock.part.PaginationUIManager;
 import org.gtlcore.gtlcore.integration.ae2.AEUtils;
+import org.gtlcore.gtlcore.integration.ae2.graph.GraphDispatchPreflight;
 import org.gtlcore.gtlcore.integration.lowdragmc.misc.MutableItemTransferList;
 
 import com.gregtechceu.gtceu.api.capability.recipe.IO;
@@ -70,10 +71,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.Map;
 
 import static org.gtlcore.gtlcore.integration.ae2.AEUtils.*;
 
-public class MEMolecularAssemblerIOPartMachine extends MEIOPartMachine implements PatternContainer, IMECraftIOPart {
+public class MEMolecularAssemblerIOPartMachine extends MEIOPartMachine implements PatternContainer, IMECraftIOPart,
+                                               GraphDispatchPreflight {
 
     protected static final ManagedFieldHolder MANAGED_FIELD_HOLDER = new ManagedFieldHolder(MEMolecularAssemblerIOPartMachine.class, MEIOPartMachine.MANAGED_FIELD_HOLDER);
 
@@ -196,21 +199,84 @@ public class MEMolecularAssemblerIOPartMachine extends MEIOPartMachine implement
             }
         }
 
-        final GenericStack requireStack = processingPattern.getInputs()[0].getPossibleInputs()[0];
+        final var firstInput = processingPattern.getInputs()[0];
         long multiplier = 0;
         for (var inputList : keyCounters) {
             for (var input : inputList) {
-                if (requireStack.what().equals(input.getKey())) {
-                    multiplier = input.getLongValue() / (requireStack.amount() * processingPattern.getInputs()[0].getMultiplier());
+                for (var possible : firstInput.getPossibleInputs()) {
+                    if (!possible.what().equals(input.getKey())) continue;
+                    long cost = possible.amount() * firstInput.getMultiplier();
+                    if (cost <= 0) continue;
+                    multiplier = input.getLongValue() / cost;
                     break;
                 }
+                if (multiplier != 0) break;
             }
+            if (multiplier != 0) break;
         }
         if (multiplier == 0) return false;
 
         outputItems.addTo(output, multiplier);
         maHandler.notifyListeners();
         return true;
+    }
+
+    @Override
+    public boolean gtlcore$canProduceGraphPattern(IPatternDetails pattern) {
+        if (!getMainNode().isActive() || !(pattern instanceof AEProcessingPattern) || !patternSlotMap.containsKey(pattern)) return false;
+        return gtlcore$missingGraphTools(pattern).isEmpty();
+    }
+
+    private Set<Item> gtlcore$missingGraphTools(IPatternDetails pattern) {
+        if (!patternSlotMap.containsKey(pattern)) return Set.of();
+        var required = toolsSlotMap.get(patternSlotMap.get(pattern));
+        if (required == null || required.isEmpty()) return Set.of();
+        var missing = new ObjectOpenHashSet<>(required);
+        for (int i = 0; i < sharedToolsInventory.getSlots(); i++) {
+            var stack = sharedToolsInventory.getStackInSlot(i);
+            if (!stack.isDamageableItem()) missing.remove(stack.getItem());
+        }
+        return missing;
+    }
+
+    @Override
+    public String gtlcore$graphBlockReason(IPatternDetails pattern) {
+        return !getMainNode().isActive() || !patternSlotMap.containsKey(pattern) ? "PROVIDER_OFFLINE" :
+                gtlcore$missingGraphTools(pattern).isEmpty() ? "PROVIDER_REJECTED" : "MISSING_TOOL";
+    }
+
+    @Override
+    public String gtlcore$graphBlockDetail(IPatternDetails pattern) {
+        return "pos=" + getPos() + "; missing_shared_tools=" + gtlcore$missingGraphTools(pattern);
+    }
+
+    @Override
+    public Component gtlcore$graphBlockMessage(IPatternDetails pattern) {
+        return gtlcore$graphToolMessage(gtlcore$missingGraphTools(pattern));
+    }
+
+    @Override
+    public @Nullable Component gtlcore$graphSharedToolProblem(IPatternDetails pattern) {
+        var missing = gtlcore$missingGraphTools(pattern);
+        return missing.isEmpty() ? null : gtlcore$graphToolMessage(missing);
+    }
+
+    private Component gtlcore$graphToolMessage(Set<Item> missing) {
+        var names = Component.empty();
+        for (var item : missing) {
+            if (!names.getSiblings().isEmpty()) names.append(", ");
+            names.append(item.getDescription());
+        }
+        return Component.translatable("gtlcore.ae.graph.shared_tool_location", names, getPos().toShortString());
+    }
+
+    @Override
+    public long gtlcore$graphCapacity(IPatternDetails pattern, Map<AEKey, Long> inputPerRun, long requested) {
+        if (!gtlcore$canProduceGraphPattern(pattern)) return 0;
+        GenericStack output = pattern.getOutputs()[0];
+        long queued = outputItems.getLong(output);
+        if (queued < 0 || output.amount() <= 0) return 0;
+        return Math.max(0, Math.min(requested, Long.MAX_VALUE / output.amount() - queued));
     }
 
     @Override
@@ -251,6 +317,7 @@ public class MEMolecularAssemblerIOPartMachine extends MEIOPartMachine implement
     }
 
     private @Nullable IPatternDetails getPatternDetailsAsProcessing(ItemStack stack, int slotIndex) {
+        toolsSlotMap.remove(slotIndex);
         if (!stack.isEmpty()) {
             if (stack.getItem() instanceof EncodedPatternItem encodedPatternItem) {
                 final var decodePattern = encodedPatternItem.decode(stack, getLevel(), false);

@@ -11,6 +11,7 @@ import org.gtlcore.gtlcore.api.recipe.ingredient.LongIngredient;
 import org.gtlcore.gtlcore.client.gui.widget.AEDualConfigWidget;
 import org.gtlcore.gtlcore.config.ConfigHolder;
 import org.gtlcore.gtlcore.integration.ae2.AEUtils;
+import org.gtlcore.gtlcore.utils.MachineUtil;
 
 import com.gregtechceu.gtceu.api.capability.recipe.IO;
 import com.gregtechceu.gtceu.api.gui.GuiTextures;
@@ -83,15 +84,17 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
     private static final IGuiTexture AUTO_PULL_ITEM_ICON = new ItemStackTexture(Items.IRON_INGOT);
     private static final IGuiTexture AUTO_PULL_FLUID_ICON = new ItemStackTexture(Items.WATER_BUCKET);
 
-    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.enableUltimateMEStocking;
+    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.machines.enableUltimateMEStocking;
 
-    protected ExportOnlyAEItemList aeItemHandler;
+    public ExportOnlyAEItemList aeItemHandler;
 
-    protected ExportOnlyAEFluidList aeFluidHandler;
+    public ExportOnlyAEFluidList aeFluidHandler;
 
     @Persisted
     protected NotifiableFluidTank fluidTank;
 
+    @DescSynced
+    @Persisted
     @Setter
     protected int page = 1;
 
@@ -103,6 +106,12 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
     public MEDualHatchStockPartMachine(IMachineBlockEntity holder, Object... args) {
         super(holder, IO.IN, args);
         fluidTank = createTank();
+    }
+
+    @Override
+    public void setWorkingEnabled(boolean workingEnabled) {
+        super.setWorkingEnabled(workingEnabled);
+        MachineUtil.notifyControllersRecipeLogic(this);
     }
 
     @Override
@@ -119,7 +128,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
     @Override
     public void onMainNodeStateChanged(IGridNodeListener.State reason) {
         super.onMainNodeStateChanged(reason);
-        if (getMainNode().isOnline()) aeItemHandler.notifyListeners();
+        if (getMainNode().isOnline()) markMEStockChanged();
     }
 
     @Override
@@ -139,15 +148,16 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         if (autoPullMode != AUTO_PULL_OFF && getOffsetTimer() % (getOffset() == 0 ? 50 : getOffset()) == 0) {
             refreshList();
-            syncME();
         }
     }
 
     private void refreshList() {
+        AEKey[] previousConfig = createConfigSnapshot();
         IGrid grid = this.getMainNode().getGrid();
         if (grid == null) {
             aeItemHandler.clearInventory(0);
             aeFluidHandler.clearInventory(0);
+            finishRefreshList(previousConfig);
             return;
         }
         IStorageService storageService = grid.getStorageService();
@@ -155,7 +165,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         final var inventory = this.aeItemHandler.getInventory();
         final var fluidInventory = this.aeFluidHandler.getInventory();
 
-        var counter = networkStorage.getAvailableStacks();
+        var counter = storageService.getCachedInventory();
         int index = 0;
         for (Object2LongMap.Entry<AEKey> entry : counter) {
             if (index >= CONFIG_SIZE) break;
@@ -194,8 +204,30 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         aeItemHandler.clearInventory(index);
         aeFluidHandler.clearInventory(index);
 
-        ((IOptimizedMEList) aeItemHandler).onConfigChanged();
-        ((IOptimizedMEList) aeFluidHandler).onConfigChanged();
+        finishRefreshList(previousConfig);
+    }
+
+    private AEKey[] createConfigSnapshot() {
+        final var inventory = this.aeItemHandler.getInventory();
+        final var fluidInventory = this.aeFluidHandler.getInventory();
+        AEKey[] configuredKeys = new AEKey[inventory.length];
+        for (int i = 0; i < inventory.length; i++) {
+            GenericStack config = inventory[i].getConfig();
+            if (config == null) {
+                config = fluidInventory[i].getConfig();
+            }
+            configuredKeys[i] = config == null ? null : config.what();
+        }
+        return configuredKeys;
+    }
+
+    private void finishRefreshList(AEKey[] previousConfig) {
+        if (!Arrays.equals(previousConfig, createConfigSnapshot())) {
+            ((IOptimizedMEList) aeItemHandler).onConfigChanged();
+            ((IOptimizedMEList) aeFluidHandler).onConfigChanged();
+        }
+        ((IOptimizedMEList) aeItemHandler).setChanged(true);
+        ((IOptimizedMEList) aeFluidHandler).setChanged(true);
     }
 
     protected void syncME() {
@@ -203,10 +235,11 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         if (grid == null) {
             return;
         }
-        MEStorage networkInv = grid.getStorageService().getInventory();
+        var cachedInventory = grid.getStorageService().getCachedInventory();
         ExportOnlyAEItemSlot[] aeItem = aeItemHandler.getInventory();
         ExportOnlyAEFluidSlot[] aeFluid = aeFluidHandler.getInventory();
         ExportOnlyAESlot slot;
+        boolean changed = false;
         for (int i = 0; i < aeItem.length; i++) {
             slot = aeItem[i];
             var config = slot.getConfig();
@@ -216,16 +249,29 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
             }
             if (config != null) {
                 var key = config.what();
-                long extracted = networkInv.extract(key, Long.MAX_VALUE, Actionable.SIMULATE, actionSource);
-                if (extracted > 0) {
-                    slot.setStock(new GenericStack(key, extracted));
-                    continue;
+                long extracted = cachedInventory.get(key);
+                GenericStack nextStock = extracted > 0 ? new GenericStack(key, extracted) : null;
+                if (!Objects.equals(slot.getStock(), nextStock)) {
+                    slot.setStock(nextStock);
+                    changed = true;
                 }
+                continue;
             }
-            slot.setStock(null);
+            if (slot.getStock() != null) {
+                slot.setStock(null);
+                changed = true;
+            }
         }
+        if (changed) {
+            markMEStockChanged();
+        }
+    }
+
+    private void markMEStockChanged() {
         ((IOptimizedMEList) aeItemHandler).setChanged(true);
         ((IOptimizedMEList) aeFluidHandler).setChanged(true);
+        aeItemHandler.notifyListeners();
+        aeFluidHandler.notifyListeners();
     }
 
     @Override
@@ -285,7 +331,11 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         }
     }
 
-    protected CompoundTag writeConfigToTag() {
+    public void setTerminalAutoPullMode(int autoPullMode) {
+        setAutoPullMode(Math.max(AUTO_PULL_OFF, Math.min(AUTO_PULL_FLUID, autoPullMode)));
+    }
+
+    public CompoundTag writeConfigToTag() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("AutoPullMode", autoPullMode);
         CompoundTag configStacks = new CompoundTag();
@@ -310,7 +360,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         return tag;
     }
 
-    protected void readConfigFromTag(CompoundTag tag) {
+    public void readConfigFromTag(CompoundTag tag) {
         if (tag.contains("AutoPullMode")) {
             var autoPullMode = tag.getInt("AutoPullMode");
             this.setAutoPullMode(autoPullMode);
@@ -385,6 +435,8 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         protected IntArrayList configIndexList = new IntArrayList();
 
+        private long lastSnapshotTick = Long.MIN_VALUE;
+
         public ExportOnlyAEStockingItemList(MetaMachine holder, int slots) {
             super(holder, slots, ExportOnlyAEStockingItemSlot::new);
             for (ExportOnlyAEItemSlot exportOnlyAEItemSlot : inventory) {
@@ -403,6 +455,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         @Override
         public void onConfigChanged() {
+            lastSnapshotTick = Long.MIN_VALUE;
             configList.clear();
             configIndexList.clear();
             for (int i = 0, inventoryLength = inventory.length; i < inventoryLength; i++) {
@@ -427,6 +480,9 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         @Override
         public List<Ingredient> handleRecipeInner(IO io, GTRecipe recipe, List<Ingredient> left, @Nullable String slotName, boolean simulate) {
             if (io != IO.IN || left.isEmpty()) {
+                return left;
+            }
+            if (!MEDualHatchStockPartMachine.this.isWorkingEnabled()) {
                 return left;
             }
             IGrid grid = getMainNode().getGrid();
@@ -483,15 +539,20 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         @Override
         public @Nullable Object2LongMap<ItemStack> getMEItemMap() {
-            if (ENABLE_ULTIMATE_ME_STOCKING || getChanged()) {
+            long currentTick = getOffsetTimer();
+            if (getChanged() || ENABLE_ULTIMATE_ME_STOCKING && lastSnapshotTick != currentTick) {
                 setChanged(false);
+                lastSnapshotTick = currentTick;
                 final var itemMap = getItemMap();
                 itemMap.clear();
-                final MEStorage aeNetwork = Objects.requireNonNull(getMainNode().getGrid()).getStorageService().getInventory();
-                for (var key : configList) {
-                    long extracted = aeNetwork.extract(key, Long.MAX_VALUE, Actionable.SIMULATE, getActionSource());
-                    if (extracted > 0) {
-                        itemMap.addTo(key.toStack(), extracted);
+                IGrid grid = getMainNode().getGrid();
+                if (grid != null) {
+                    final MEStorage aeNetwork = grid.getStorageService().getInventory();
+                    for (var key : configList) {
+                        long extracted = aeNetwork.extract(key, Long.MAX_VALUE, Actionable.SIMULATE, getActionSource());
+                        if (extracted > 0) {
+                            itemMap.addTo(key.toStack(), extracted);
+                        }
                     }
                 }
             }
@@ -515,7 +576,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
                 if (this.config != null) {
                     // Extract the items from the real net to either validate (simulate)
                     // or extract (modulate) when this is called
-                    if (!isOnline()) return ItemStack.EMPTY;
+                    if (!isOnline() || !MEDualHatchStockPartMachine.this.isWorkingEnabled()) return ItemStack.EMPTY;
                     IGrid grid = getMainNode().getGrid();
                     if (grid == null) return ItemStack.EMPTY;
                     MEStorage aeNetwork = grid.getStorageService().getInventory();
@@ -553,6 +614,8 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         protected IntArrayList configIndexList = new IntArrayList();
 
+        private long lastSnapshotTick = Long.MIN_VALUE;
+
         public ExportOnlyAEStockingFluidList(MetaMachine holder, int slots) {
             super(holder, slots, ExportOnlyAEStockingFluidSlot::new);
             for (ExportOnlyAEFluidSlot exportOnlyAEFluidSlot : inventory) {
@@ -571,6 +634,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         @Override
         public void onConfigChanged() {
+            lastSnapshotTick = Long.MIN_VALUE;
             configList.clear();
             configIndexList.clear();
             for (int i = 0, inventoryLength = inventory.length; i < inventoryLength; i++) {
@@ -595,6 +659,9 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
         @Override
         public List<FluidIngredient> handleRecipeInner(IO io, GTRecipe recipe, List<FluidIngredient> left, @Nullable String slotName, boolean simulate) {
             if (io != IO.IN || left.isEmpty()) {
+                return left;
+            }
+            if (!MEDualHatchStockPartMachine.this.isWorkingEnabled()) {
                 return left;
             }
             IGrid grid = getMainNode().getGrid();
@@ -648,8 +715,10 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
 
         @Override
         public List<FluidStack> getMEFluidList() {
-            if (ENABLE_ULTIMATE_ME_STOCKING || getChanged()) {
+            long currentTick = getOffsetTimer();
+            if (getChanged() || ENABLE_ULTIMATE_ME_STOCKING && lastSnapshotTick != currentTick) {
                 setChanged(false);
+                lastSnapshotTick = currentTick;
                 final var fluidList = getFluidList();
                 fluidList.clear();
                 IGrid grid = getMainNode().getGrid();
@@ -687,7 +756,7 @@ public class MEDualHatchStockPartMachine extends MEBusPartMachine implements IDa
             if (this.stock != null && this.config != null) {
                 // Extract the items from the real net to either validate (simulate)
                 // or extract (modulate) when this is called
-                if (!isOnline()) return FluidStack.empty();
+                if (!isOnline() || !MEDualHatchStockPartMachine.this.isWorkingEnabled()) return FluidStack.empty();
                 IGrid grid = getMainNode().getGrid();
                 if (grid == null) return FluidStack.empty();
                 MEStorage aeNetwork = grid.getStorageService().getInventory();

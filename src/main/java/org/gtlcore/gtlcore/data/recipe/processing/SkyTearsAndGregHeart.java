@@ -33,7 +33,7 @@ import static org.gtlcore.gtlcore.api.data.tag.GTLTagPrefix.nanoswarm;
 import static org.gtlcore.gtlcore.common.data.GTLItems.*;
 import static org.gtlcore.gtlcore.common.data.GTLMaterials.*;
 import static org.gtlcore.gtlcore.common.data.GTLRecipeTypes.*;
-import static org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachine.SPACE_ELEVATOR;
+import static org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachineB.SPACE_ELEVATOR;
 import static org.gtlcore.gtlcore.common.data.machines.MultiBlockMachineB.LARGE_FRAGMENT_WORLD_COLLECTION_MACHINE;
 
 public class SkyTearsAndGregHeart {
@@ -307,7 +307,7 @@ public class SkyTearsAndGregHeart {
     };
 
     public static void init(Consumer<FinishedRecipe> provider) {
-        if (ConfigHolder.INSTANCE.enableSkyBlokeMode) {
+        if (ConfigHolder.INSTANCE.content.enableSkyBlokeMode) {
             VanillaRecipeHelper.addShapedRecipe(provider,
                     GTLCore.id("make_fragment_world_collection_machine"), GTLMachines.FRAGMENT_WORLD_COLLECTION_MACHINE[ULV].asStack(),
                     "WNW", "PCQ", "XNX",
@@ -794,7 +794,7 @@ public class SkyTearsAndGregHeart {
 
         }
 
-        if (!ConfigHolder.INSTANCE.enableSkyBlokeMode) {
+        if (!ConfigHolder.INSTANCE.content.enableSkyBlokeMode) {
 
             VanillaRecipeHelper.addShapedRecipe(provider,
                     GTLCore.id("make_fragment_world_collection_machine"), GTLMachines.FRAGMENT_WORLD_COLLECTION_MACHINE[ULV].asStack(),

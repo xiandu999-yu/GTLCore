@@ -1,11 +1,13 @@
 package org.gtlcore.gtlcore.common.machine.multiblock.part;
 
+import org.gtlcore.gtlcore.api.gui.TagFilterConfigurator;
 import org.gtlcore.gtlcore.api.machine.trait.MEPart.IModifiableSyncOffset;
 import org.gtlcore.gtlcore.api.machine.trait.MEStock.ExportOnlyAEConfigureItemSlot;
 import org.gtlcore.gtlcore.api.machine.trait.MEStock.IMESlot;
 import org.gtlcore.gtlcore.api.machine.trait.MEStock.IOptimizedMEList;
 import org.gtlcore.gtlcore.api.recipe.ingredient.LongIngredient;
 import org.gtlcore.gtlcore.config.ConfigHolder;
+import org.gtlcore.gtlcore.utils.MachineUtil;
 
 import com.gregtechceu.gtceu.api.capability.recipe.IO;
 import com.gregtechceu.gtceu.api.gui.fancy.*;
@@ -18,8 +20,6 @@ import com.gregtechceu.gtceu.common.item.IntCircuitBehaviour;
 import com.gregtechceu.gtceu.integration.ae2.machine.MEInputBusPartMachine;
 import com.gregtechceu.gtceu.integration.ae2.slot.*;
 
-import com.lowdragmc.lowdraglib.gui.texture.IGuiTexture;
-import com.lowdragmc.lowdraglib.gui.texture.ResourceTexture;
 import com.lowdragmc.lowdraglib.gui.texture.TextTexture;
 import com.lowdragmc.lowdraglib.gui.widget.*;
 import com.lowdragmc.lowdraglib.syncdata.annotation.Persisted;
@@ -61,8 +61,7 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
     protected static final ManagedFieldHolder MANAGED_FIELD_HOLDER = new ManagedFieldHolder(TagFilterMEStockBusPartMachine.class,
             MEInputBusPartMachine.MANAGED_FIELD_HOLDER);
 
-    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.enableUltimateMEStocking;
-    private static final ResourceTexture TEXTURE = new ResourceTexture("gtceu:textures/gui/list.png");
+    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.machines.enableUltimateMEStocking;
 
     @Persisted
     protected String tagWhite = "";
@@ -80,6 +79,12 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
     }
 
     @Override
+    public void setWorkingEnabled(boolean workingEnabled) {
+        super.setWorkingEnabled(workingEnabled);
+        MachineUtil.notifyControllersRecipeLogic(this);
+    }
+
+    @Override
     protected NotifiableItemStackHandler createInventory(Object... args) {
         this.aeItemHandler = new ExportOnlyAEStockingItemList(this, CONFIG_SIZE);
         return this.aeItemHandler;
@@ -90,11 +95,11 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
         super.attachConfigurators(configuratorPanel);
         configuratorPanel.attachConfigurators(new IFancyConfiguratorButton.Toggle(
                 new TextTexture("A-Z"),
-                new TextTexture("数量▼"),
+                new TextTexture("gui.gtlcore.sort_by_amount"),
                 this::isCountSort,
                 (clickData, pressed) -> setCountSort(pressed))
                 .setTooltipsSupplier(pressed -> List.of(Component.translatable("tooltip.gtlcore.auto_pull_sort_mode"))));
-        configuratorPanel.attachConfigurators(new FilterIFancyConfigurator());
+        configuratorPanel.attachConfigurators(createTagFilterConfigurator());
     }
 
     @Override
@@ -142,7 +147,7 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
         List<GenericStack> order = new ObjectArrayList<>();
         final var inventory = this.aeItemHandler.getInventory();
 
-        var counter = networkStorage.getAvailableStacks();
+        var counter = storageService.getCachedInventory();
         int index = 0;
         for (Object2LongMap.Entry<AEKey> entry : counter) {
             if (!isCountSort && index >= CONFIG_SIZE) break;
@@ -227,36 +232,18 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
         return MANAGED_FIELD_HOLDER;
     }
 
-    private class FilterIFancyConfigurator implements IFancyConfigurator {
+    public String getTagWhite() {
+        return tagWhite;
+    }
 
-        @Override
-        public Component getTitle() {
-            return Component.translatable("gui.gtlcore.tag_filter_config");
-        }
+    public String getTagBlack() {
+        return tagBlack;
+    }
 
-        @Override
-        public IGuiTexture getIcon() {
-            return TEXTURE.scale(1.25f);
-        }
-
-        @Override
-        public Widget createConfigurator() {
-            return new WidgetGroup(0, 0, 132, 100)
-                    .addWidget(new LabelWidget(9, 4,
-                            () -> Component.translatable("gui.gtlcore.tag_whitelist").getString()))
-                    .addWidget(new TextFieldWidget(9, 16, 114, 16,
-                            () -> tagWhite,
-                            v -> tagWhite = v))
-                    .addWidget(new LabelWidget(9, 36,
-                            () -> Component.translatable("gui.gtlcore.tag_blacklist").getString()))
-                    .addWidget(new TextFieldWidget(9, 48, 114, 16,
-                            () -> tagBlack,
-                            v -> tagBlack = v))
-                    .addWidget(new LabelWidget(0, 68,
-                            () -> Component.translatable("gui.gtlcore.wildcard_info").getString()))
-                    .addWidget(new LabelWidget(0, 84,
-                            () -> Component.translatable("gui.gtlcore.logic_operators").getString()));
-        }
+    public IFancyConfigurator createTagFilterConfigurator() {
+        return new TagFilterConfigurator(
+                this::getTagWhite, value -> tagWhite = value,
+                this::getTagBlack, value -> tagBlack = value);
     }
 
     private class ExportOnlyAEStockingItemList extends ExportOnlyAEItemList implements IOptimizedMEList {
@@ -264,6 +251,8 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
         protected ObjectArrayList<AEItemKey> configList = new ObjectArrayList<>();
 
         protected IntArrayList configIndexList = new IntArrayList();
+
+        private long lastSnapshotTick = Long.MIN_VALUE;
 
         public ExportOnlyAEStockingItemList(MetaMachine holder, int slots) {
             super(holder, slots, ExportOnlyAEStockingItemSlot::new);
@@ -283,6 +272,7 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
 
         @Override
         public void onConfigChanged() {
+            lastSnapshotTick = Long.MIN_VALUE;
             configList.clear();
             configIndexList.clear();
             for (int i = 0, inventoryLength = inventory.length; i < inventoryLength; i++) {
@@ -308,6 +298,9 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
         @Override
         public @Nullable List<Ingredient> handleRecipeInner(IO io, GTRecipe recipe, List<Ingredient> left, @Nullable String slotName, boolean simulate) {
             if (io != IO.IN || left.isEmpty()) {
+                return left;
+            }
+            if (!TagFilterMEStockBusPartMachine.this.isWorkingEnabled()) {
                 return left;
             }
             IGrid grid = getMainNode().getGrid();
@@ -365,8 +358,10 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
 
         @Override
         public @Nullable Object2LongMap<ItemStack> getMEItemMap() {
-            if (ENABLE_ULTIMATE_ME_STOCKING || getChanged()) {
+            long currentTick = getOffsetTimer();
+            if (getChanged() || ENABLE_ULTIMATE_ME_STOCKING && lastSnapshotTick != currentTick) {
                 setChanged(false);
+                lastSnapshotTick = currentTick;
                 final var itemMap = getItemMap();
                 itemMap.clear();
                 final MEStorage aeNetwork = Objects.requireNonNull(getMainNode().getGrid()).getStorageService().getInventory();
@@ -397,7 +392,7 @@ public class TagFilterMEStockBusPartMachine extends MEInputBusPartMachine implem
                 if (this.config != null) {
                     // Extract the items from the real net to either validate (simulate)
                     // or extract (modulate) when this is called
-                    if (!isOnline()) return ItemStack.EMPTY;
+                    if (!isOnline() || !TagFilterMEStockBusPartMachine.this.isWorkingEnabled()) return ItemStack.EMPTY;
                     IGrid grid = getMainNode().getGrid();
                     if (grid == null) return ItemStack.EMPTY;
                     MEStorage aeNetwork = grid.getStorageService().getInventory();

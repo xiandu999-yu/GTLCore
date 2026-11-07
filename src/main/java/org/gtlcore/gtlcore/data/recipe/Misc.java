@@ -4,7 +4,7 @@ import org.gtlcore.gtlcore.GTLCore;
 import org.gtlcore.gtlcore.common.data.GTLItems;
 import org.gtlcore.gtlcore.common.data.GTLMachines;
 import org.gtlcore.gtlcore.common.data.machines.AdditionalMultiBlockMachine;
-import org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachine;
+import org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachineA;
 import org.gtlcore.gtlcore.common.recipe.condition.GravityCondition;
 import org.gtlcore.gtlcore.config.ConfigHolder;
 import org.gtlcore.gtlcore.utils.Registries;
@@ -31,14 +31,16 @@ import appeng.core.definitions.AEItems;
 
 import java.util.function.Consumer;
 
+import static appeng.core.definitions.AEBlocks.CRAFTING_MONITOR;
 import static com.glodblock.github.extendedae.common.EPPItemAndBlock.*;
 import static com.gregtechceu.gtceu.api.GTValues.*;
 import static com.gregtechceu.gtceu.api.data.tag.TagPrefix.*;
 import static com.gregtechceu.gtceu.common.data.GTItems.*;
+import static com.gregtechceu.gtceu.common.data.GTMachines.BUFFER;
 import static com.gregtechceu.gtceu.common.data.GTMaterials.*;
 import static com.gregtechceu.gtceu.common.data.GTRecipeTypes.*;
-import static org.gtlcore.gtlcore.common.data.GTLItems.ELECTRIC_PUMP_MAX;
-import static org.gtlcore.gtlcore.common.data.GTLItems.FLUID_REGULATOR_MAX;
+import static org.gtlcore.gtlcore.common.data.GTLItems.*;
+import static org.gtlcore.gtlcore.common.data.GTLMachines.GTAEMachines.ME_CRAFTING_CPU_INTERFACE;
 import static org.gtlcore.gtlcore.common.data.GTLMaterials.*;
 import static org.gtlcore.gtlcore.common.data.GTLRecipeTypes.*;
 import static org.gtlcore.gtlcore.common.data.machines.MultiBlockMachineB.PRIMITIVE_VOID_ORE;
@@ -82,7 +84,7 @@ public class Misc {
                 'B', GTLItems.ITEM_INFINITY_CELL.asStack(),
                 'C', ZERO_POINT_MODULE.asStack(),
                 'D', GTLItems.FLUID_INFINITY_CELL.asStack());
-        if (ConfigHolder.INSTANCE.enablePrimitiveVoidOre) {
+        if (ConfigHolder.INSTANCE.content.enablePrimitiveVoidOre) {
             VanillaRecipeHelper.addShapedRecipe(provider, true, "primitive_void_ore_recipes",
                     PRIMITIVE_VOID_ORE.asStack(), "DCD", "CGC", "DCD",
                     'D', Blocks.DIRT.asItem(),
@@ -95,7 +97,7 @@ public class Misc {
         }
 
         VanillaRecipeHelper.addShapelessRecipe(provider, "simulation_machine",
-                AdvancedMultiBlockMachine.SIMULATION_MACHINE.asStack(), "A", Blocks.COBBLESTONE);
+                AdvancedMultiBlockMachineA.SIMULATION_MACHINE.asStack(), "A", Blocks.COBBLESTONE);
 
         WOOD_DISTILLATION_RECIPES.recipeBuilder("wood_distillation_recipes")
                 .inputItems(ItemTags.LOGS, 16)
@@ -281,6 +283,27 @@ public class Misc {
                         .dataStack(GTItems.TOOL_DATA_MODULE.asStack()).EUt(VA[9]).CWUt(128))
                 .save(provider);
 
+        ASSEMBLY_LINE_RECIPES.recipeBuilder("me_crafting_cpu_interface")
+                .inputItems(frameGt, Quantanium, 16)
+                .inputItems(GTMachines.HULL[UV])
+                .inputItems(FIELD_GENERATOR_UHV, 8)
+                .inputItems(EMITTER_UHV, 4)
+                .inputItems(SENSOR_UHV, 4)
+                .inputItems(BUFFER[UHV], 32)
+                .inputItems(CRAFTING_MONITOR.asItem(), 32)
+                .inputItems(CustomTags.UHV_CIRCUITS, 4)
+                .inputItems(CELL_COMPONENT_256M, 16)
+                .inputFluids(AminatedFullerene.getFluid(4000))
+                .inputFluids(CarbonNanotubes.getFluid(5760))
+                .inputFluids(DegenerateRhenium.getFluid(8000))
+                .inputFluids(PolyurethaneResin.getFluid(8000))
+                .outputItems(ME_CRAFTING_CPU_INTERFACE)
+                .stationResearch(b -> b
+                        .researchStack(Registries.getItemStack("mae2:256x_crafting_accelerator"))
+                        .dataStack(TOOL_DATA_MODULE.asStack()).EUt(VA[UHV]).CWUt(256))
+                .EUt(VA[UHV]).duration(800)
+                .save(provider);
+
         ASSEMBLY_LINE_RECIPES.recipeBuilder("me_craft_pattern_container")
                 .inputItems(GTMachines.HULL[UV])
                 .inputItems(FIELD_GENERATOR_UV, 4)
@@ -308,6 +331,27 @@ public class Misc {
                 .circuitMeta(1)
                 .outputItems(FLUID_REGULATOR_MAX)
                 .EUt(VA[13]).duration(100)
+                .save(provider);
+
+        ASSEMBLY_LINE_RECIPES.recipeBuilder("material_manipulator")
+                .inputItems(CustomTags.ZPM_CIRCUITS, 8)
+                .inputItems(ROBOT_ARM_ZPM, 4)
+                .inputItems(FLUID_REGULATOR_ZPM, 4)
+                .inputItems(FIELD_GENERATOR_IV, 2)
+                .inputItems(plateDouble, RhodiumPlatedPalladium, 4)
+                .inputItems(wireGtHex, SamariumIronArsenicOxide, 2)
+                .inputItems(Registries.getItemStack("gtceu:paracetamol_pill"), 16)
+                .inputItems(Registries.getItemStack("gtceu:rad_away_pill"), 16)
+                .inputItems(Registries.getItemStack("ae2wtlib:quantum_bridge_card"))
+                .inputFluids(SolderingAlloy.getFluid(5760))
+                .inputFluids(Polybenzimidazole.getFluid(4000))
+                .outputItems(MATTER_MANIPULATOR)
+                .EUt(VA[6]).duration(200)
+                .scannerResearch(b -> b
+                        .researchStack(Registries.getItemStack("ae2:spatial_anchor"))
+                        .dataStack(TOOL_DATA_STICK.asStack())
+                        .EUt(VA[5])
+                        .duration(300))
                 .save(provider);
     }
 }

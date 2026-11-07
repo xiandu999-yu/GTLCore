@@ -21,6 +21,41 @@ import static com.gregtechceu.gtceu.api.recipe.OverclockingLogic.*;
 public abstract class OverclockingLogicMixin {
 
     /**
+     * @author Dragons
+     * @reason Preserve the overclock factors needed to detect unused sub-tick headroom.
+     */
+    @SuppressWarnings("DataFlowIssue")
+    @Overwrite(remap = false)
+    public static void standardOverclockingLogic(@NotNull OCParams params, @NotNull OCResult result, long maxVoltage,
+                                                 double durationFactor, double voltageFactor) {
+        double duration = params.getDuration();
+        double eut = params.getEut();
+        int ocAmount = params.getOcAmount();
+        int ocLevel = 0;
+        boolean subTickOverclockAvailable = false;
+
+        while (ocAmount-- > 0) {
+            double potentialVoltage = eut * voltageFactor;
+            if (potentialVoltage > maxVoltage) break;
+
+            double potentialDuration = duration * durationFactor;
+            if (potentialDuration < 1.0) {
+                subTickOverclockAvailable = true;
+                break;
+            }
+
+            duration = potentialDuration;
+            eut = potentialVoltage;
+            ++ocLevel;
+        }
+
+        IAdvancedOCResult advancedResult = (IAdvancedOCResult) (Object) result;
+        advancedResult.init(gTLCore$toRecipeEUt(eut), gTLCore$toRecipeDuration(duration),
+                1, gTLCore$toRecipeEUt(eut), ocLevel, ocLevel, durationFactor, voltageFactor);
+        advancedResult.setSubTickOverclockAvailable(subTickOverclockAvailable);
+    }
+
+    /**
      * @author mod_author
      * @reason 原版的高炉太慢
      */
@@ -28,7 +63,7 @@ public abstract class OverclockingLogicMixin {
     @Overwrite(remap = false)
     public static void heatingCoilOC(@NotNull OCParams params, @NotNull OCResult result, long maxVoltage,
                                      int providedTemp, int requiredTemp) {
-        double duration = params.getDuration() * Math.max(0.5, (double) requiredTemp / providedTemp);
+        double duration = params.getDuration();
         double eut = params.getEut();
         int ocAmount = params.getOcAmount();
         double parallel = 1.0;
@@ -39,6 +74,8 @@ public abstract class OverclockingLogicMixin {
         double vfPowParallel = 1.0;
 
         for (ocLevel = 0; ocAmount-- > 0; ++ocLevel) {
+            // Further overclocks cannot increase the int-backed parallel multiplier.
+            if (parallel >= Integer.MAX_VALUE) break;
             double potentialVoltage = eut * STD_VOLTAGE_FACTOR;
             if (potentialVoltage > (double) maxVoltage) break;
 
@@ -59,10 +96,10 @@ public abstract class OverclockingLogicMixin {
             }
         }
 
-        eut *= Math.min(1, NumberUtils.pow95(Math.max(0, (providedTemp - requiredTemp) / 900)));
-
+        // Charge only the executable fraction of the last sub-tick overclock.
+        double parallelEUt = eut * Math.min(1.0, Integer.MAX_VALUE / parallel);
         ((IAdvancedOCResult) (Object) result).init(gTLCore$toRecipeEUt(eut / vfPowParallel), gTLCore$toRecipeDuration(duration),
-                (int) parallel, gTLCore$toRecipeEUt(eut), baseOCLevel, ocLevel, PERFECT_DURATION_FACTOR, STD_VOLTAGE_FACTOR);
+                (int) parallel, gTLCore$toRecipeEUt(parallelEUt), baseOCLevel, ocLevel, PERFECT_DURATION_FACTOR, STD_VOLTAGE_FACTOR);
     }
 
     @Inject(method = "getOverclockForTier", at = @At("HEAD"), remap = false, cancellable = true)
@@ -88,6 +125,8 @@ public abstract class OverclockingLogicMixin {
         double vfPowParallel = 1.0;
 
         for (ocLevel = 0; ocAmount-- > 0; ++ocLevel) {
+            // Further overclocks cannot increase the int-backed parallel multiplier.
+            if (parallel >= Integer.MAX_VALUE) break;
             double potentialVoltage = eut * voltageFactor;
             if (potentialVoltage > (double) maxVoltage) break;
 
@@ -108,8 +147,10 @@ public abstract class OverclockingLogicMixin {
             }
         }
 
+        // Charge only the executable fraction of the last sub-tick overclock.
+        double parallelEUt = eut * Math.min(1.0, Integer.MAX_VALUE / parallel);
         ((IAdvancedOCResult) (Object) result).init(gTLCore$toRecipeEUt(eut / vfPowParallel), gTLCore$toRecipeDuration(duration),
-                (int) parallel, gTLCore$toRecipeEUt(eut), baseOCLevel, ocLevel, durationFactor, voltageFactor);
+                (int) parallel, gTLCore$toRecipeEUt(parallelEUt), baseOCLevel, ocLevel, durationFactor, voltageFactor);
     }
 
     @Unique

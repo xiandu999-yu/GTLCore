@@ -8,7 +8,7 @@ version = "${version}"
 displayName = "${mod_name}"
 displayURL = "${mod_url}"
 authors="${mod_author}"
-description = "GregTech Leisure Core Mods"
+description = "GregTech Leisure Core Mods. Core itself is LGPL-3.0 (see LICENSE / META-INF/licenses/LGPL-3.0.txt); includes GPL-3.0 derived portions from More AE2 Additions (mae2a) by EasterFG (see META-INF/licenses/LICENSE-GPL-3.0.txt)."
 
 [[dependencies.${mod_id}]]
 modId = "forge"
@@ -39,6 +39,13 @@ ordering = "AFTER"
 side = "BOTH"
 
 [[dependencies.${mod_id}]]
+modId = "ae2wtlib"
+mandatory = true
+versionRange = "[15.3.3,16)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
 modId = "ad_astra"
 mandatory = true
 versionRange = "[${ad_astra_version},)"
@@ -62,14 +69,14 @@ side = "BOTH"
 [[dependencies.${mod_id}]]
 modId = "jei"
 mandatory = false
-versionRange = "[${jei_version},)"
+versionRange = "[${jei_version},15.49.0.200]"
 ordering = "AFTER"
 side = "BOTH"
 
 [[dependencies.${mod_id}]]
 modId = "extendedae"
 mandatory = false
-versionRange = "[1.4,8,)"
+versionRange = "[1.4.8,)"
 ordering = "AFTER"
 side = "BOTH"
 
@@ -84,5 +91,12 @@ side = "BOTH"
 modId = "wildcard_pattern"
 mandatory = false
 versionRange = "[0.1.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "mae2"
+mandatory = true
+versionRange = "[1.6.1,)"
 ordering = "AFTER"
 side = "BOTH"

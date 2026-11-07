@@ -4,8 +4,10 @@ import org.gtlcore.gtlcore.GTLCore;
 import org.gtlcore.gtlcore.api.machine.PerformanceMonitorMachine;
 import org.gtlcore.gtlcore.api.machine.multiblock.GTLPartAbility;
 import org.gtlcore.gtlcore.common.data.machines.*;
+import org.gtlcore.gtlcore.common.machine.VirtualIngredientSupplyMachine;
 import org.gtlcore.gtlcore.common.machine.generator.LightningRodMachine;
 import org.gtlcore.gtlcore.common.machine.generator.MagicEnergyMachine;
+import org.gtlcore.gtlcore.common.machine.generator.WirelessChargingStationMachine;
 import org.gtlcore.gtlcore.common.machine.multiblock.electric.CoilWorkableElectricMultipleRecipesMultiblockMachine;
 import org.gtlcore.gtlcore.common.machine.multiblock.part.*;
 import org.gtlcore.gtlcore.common.machine.multiblock.part.ae.*;
@@ -117,7 +119,8 @@ public class GTLMachines {
         ShapeInfosModify.init();
         GeneratorMachine.init();
         MultiBlockMachineA.init();
-        AdvancedMultiBlockMachine.init();
+        AdvancedMultiBlockMachineA.init();
+        AdvancedMultiBlockMachineB.init();
         AdditionalMultiBlockMachine.init();
         GTAEMachines.init();
     }
@@ -161,9 +164,20 @@ public class GTLMachines {
             .aisle("dbbbd dbbbd    d d    dbbbd dbbbd", " CCC   CCC             CCC   CCC ", " CCC   CCC             CCC   CCC ", " CCC   CCC             CCC   CCC ", "dbbbd dbbbd           dbbbd dbbbd", "  d     d               d     d  ", "  d     d               d     d  ", "                                 ", "  d     d               d     d  ", "  d     d               d     d  ", "dbbbd dbbbd           dbbbd dbbbd", " CCC   CCC             CCC   CCC ", " CCC   CCC             CCC   CCC ", " CCC   CCC   d     d   CCC   CCC ", "dbbbd dbbdCCCb     bCCCdbbd dbbbd", "         bCCCb     bCCCb         ", "         bCCCb     bCCCb         ", "         d   d     d   d         ", "                                 ", "         d   d     d   d         ", "         bCCCb     bCCCb         ", "         bCCCb     bCCCb         ", "         bCCCb     bCCCb         ", "         d   d     d   d         ")
             .aisle(" ddd   ddd             ddd   ddd ", "                                 ", "                                 ", "                                 ", " ddd   ddd             ddd   ddd ", "                                 ", "                                 ", "                                 ", "                                 ", "                                 ", " ddd   ddd             ddd   ddd ", "                                 ", "                                 ", "                                 ", " ddd   ddd   d     d   ddd   ddd ", "         d   d     d   d         ", "         d   d     d   d         ", "                                 ", "                                 ", "                                 ", "         d   d     d   d         ", "         d   d     d   d         ", "         d   d     d   d         ", "                                 ");
 
-    //////////////////////////////////////
-    // *** Simple Machine ***//
-    //////////////////////////////////////
+    public static final MachineDefinition WIRELESS_CHARGING_STATION = REGISTRATE
+            .machine("wireless_charging_station", WirelessChargingStationMachine::new)
+            .tier(GTValues.HV)
+            .rotationState(RotationState.ALL)
+            .workableCasingRenderer(GTCEu.id("block/casings/voltage/hv/side"),
+                    GTCEu.id("block/multiblock/fusion_reactor"))
+            .langValue("HV Wireless Charging Station")
+            .tooltips(Component.translatable("tooltip.gtlcore.wireless_charging_station.0"),
+                    Component.translatable("tooltip.gtlcore.wireless_charging_station.1"),
+                    Component.translatable("tooltip.gtlcore.wireless_charging_station.2"))
+            .tooltipBuilder(GTL_ADD)
+            .compassNode("charger")
+            .register();
+
     public static final MachineDefinition[] SEMI_FLUID_GENERATOR = GTMachines.registerSimpleGenerator("semi_fluid",
             GTLRecipeTypes.SEMI_FLUID_GENERATOR_FUELS, GTMachines.genericGeneratorTankSizeFunction, 0.1f, GTValues.LV, GTValues.MV,
             GTValues.HV);
@@ -493,6 +507,20 @@ public class GTLMachines {
             .tooltipBuilder(GTL_ADD)
             .register();
 
+    public static final MachineDefinition VIRTUAL_INGREDIENT_SUPPLY_MACHINE = REGISTRATE
+            .machine("virtual_ingredient_supply_machine", VirtualIngredientSupplyMachine::new)
+            .rotationState(RotationState.ALL)
+            .tier(LuV)
+            .renderer(() -> new OverlayTieredMachineRenderer(LuV, GTCEu.id("block/machine/part/me_pattern_buffer_proxy")))
+            // Deliberately not under the block's own descriptionId: GTCEu's TooltipsHandler auto-appends every
+            // "<descriptionId>.tooltip.N" it finds for anything named block.gtceu.*, so keeping them there would
+            // print the whole block twice.
+            .tooltips(Component.translatable("block.gtlcore.virtual_ingredient_supply_machine.tooltip.0"),
+                    Component.translatable("block.gtlcore.virtual_ingredient_supply_machine.tooltip.1"),
+                    Component.translatable("block.gtlcore.virtual_ingredient_supply_machine.tooltip.2"))
+            .tooltipBuilder(GTL_ADD)
+            .register();
+
     public final static MachineDefinition[] HUGE_FLUID_IMPORT_HATCH = registerHugeFluidHatches("huge_input_hatch", "Huge Input Hatch", "fluid_hatch.import", "fluid_hatch.import", IO.IN, PartAbility.IMPORT_FLUIDS);
 
     public final static MachineDefinition[] HUGE_FLUID_EXPORT_HATCH = registerHugeFluidHatches("huge_output_hatch", "Huge Output Hatch", "fluid_hatch.export", "fluid_hatch.export", IO.OUT, PartAbility.EXPORT_FLUIDS);
@@ -595,6 +623,35 @@ public class GTLMachines {
                     Component.translatable("gtceu.machine.me.copy_paste.tooltip"),
                     Component.translatable("gtceu.universal.enabled"))
             .compassNode("item_bus")
+            .register();
+
+    public static final MachineDefinition TAG_FILTER_ME_STOCK_HATCH_PART_MACHINE = REGISTRATE
+            .machine("tag_filter_me_stock_hatch_part_machine", TagFilterMEStockHatchPartMachine::new)
+            .tier(LuV)
+            .abilities(PartAbility.IMPORT_FLUIDS)
+            .rotationState(RotationState.ALL)
+            .renderer(() -> new OverlayTieredMachineRenderer(LuV, GTCEu.id("block/machine/part/me_fluid_hatch.import")))
+            .tooltips(
+                    Component.translatable("gtceu.machine.fluid_hatch.import.tooltip"),
+                    Component.translatable("gtceu.machine.me.fluid_import.tooltip"),
+                    Component.translatable("gtceu.machine.me.copy_paste.tooltip"),
+                    Component.translatable("gtceu.universal.enabled"))
+            .compassNode("fluid_hatch")
+            .register();
+
+    public static final MachineDefinition ME_INPUT_ASSEMBLY = REGISTRATE
+            .machine("me_input_assembly", MEDualInputHatchPartMachine::new)
+            .tooltipBuilder(GTL_ADD)
+            .tier(EV)
+            .abilities(PartAbility.IMPORT_ITEMS, PartAbility.IMPORT_FLUIDS)
+            .rotationState(RotationState.ALL)
+            .renderer(() -> new OverlayTieredMachineRenderer(EV, GTCEu.id("block/machine/part/me_pattern_buffer")))
+            .tooltips(
+                    Component.translatable("gtceu.machine.dual_hatch.import.tooltip"),
+                    Component.translatable("gtlcore.machine.me.dual_import.tooltip"),
+                    Component.translatable("gtceu.machine.me.copy_paste.tooltip"),
+                    Component.translatable("gtceu.universal.enabled"))
+            .compassNode("dual_hatch")
             .register();
 
     public static final MachineDefinition ME_DUAL_HATCH_STOCK_PART_MACHINE = REGISTRATE
@@ -701,6 +758,19 @@ public class GTLMachines {
                 .compassNode("fluid_hatch")
                 .register();
 
+        public static final MachineDefinition ME_CRAFTING_CPU_INTERFACE = REGISTRATE
+                .machine("me_crafting_cpu_interface", MECraftingCPUInterfacePartMachine::new)
+                .tier(UV)
+                .rotationState(RotationState.ALL)
+                .abilities(GTLPartAbility.ME_CRAFTING_CPU_INTERFACE)
+                .overlayTieredHullRenderer("me_pattern_buffer")
+                .langValue("ME Crafting CPU Interface")
+                .tooltips(
+                        Component.translatable("gtlcore.machine.me_crafting_cpu_interface.tooltip.0"),
+                        Component.translatable("gtceu.universal.disabled"))
+                .tooltipBuilder(GTL_ADD)
+                .register();
+
         public static final MachineDefinition ME_MINI_PATTERN_BUFFER = REGISTRATE
                 .machine("me_mini_pattern_buffer", (h) -> new MEPatternBufferPartMachine(h, 9, IO.IN))
                 .tier(5)
@@ -715,6 +785,8 @@ public class GTLMachines {
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.3"),
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.4"),
                         Component.translatable("gtceu.machine.me_mini_pattern_buffer.desc.0"),
+                        Component.translatable("gtlcore.machine.pattern_quick_upload.tooltip"),
+                        Component.translatable("tooltip.gtlcore.wireless_bookmark.quick_connect"),
                         Component.translatable("block.gtceu.pattern_buffer.desc.2"),
                         Component.translatable("gtceu.universal.enabled"))
                 .tooltipBuilder(GTL_ADD)
@@ -734,6 +806,27 @@ public class GTLMachines {
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.3"),
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.4"),
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.5"),
+                        Component.translatable("gtlcore.machine.pattern_quick_upload.tooltip"),
+                        Component.translatable("tooltip.gtlcore.wireless_bookmark.quick_connect"),
+                        Component.translatable("block.gtceu.pattern_buffer.desc.2"),
+                        Component.translatable("gtceu.universal.enabled"))
+                .tooltipBuilder(GTL_ADD)
+                .register();
+
+        public static final MachineDefinition ME_RECIPE_PATTERN_BUFFER = REGISTRATE
+                .machine("me_recipe_pattern_buffer", holder -> new MERecipePatternBufferPartMachine(holder, IO.BOTH))
+                .tier(UXV)
+                .rotationState(RotationState.ALL)
+                .abilities(PartAbility.IMPORT_ITEMS, PartAbility.IMPORT_FLUIDS, PartAbility.EXPORT_ITEMS, PartAbility.EXPORT_FLUIDS)
+                .overlayTieredHullRenderer("me_pattern_buffer")
+                .langValue("ME Recipe Wildcard Pattern Buffer")
+                .tooltips(Component.translatable("block.gtceu.pattern_buffer.desc.0"),
+                        Component.translatable("gtceu.machine.me_recipe_pattern_buffer.desc.0"),
+                        Component.translatable("gtceu.machine.me_recipe_pattern_buffer.desc.1"),
+                        Component.translatable("gtceu.machine.me_recipe_pattern_buffer.desc.2"),
+                        Component.translatable("gtceu.machine.me_recipe_pattern_buffer.desc.3"),
+                        Component.translatable("gtceu.machine.me_pattern_buffer.desc.3"),
+                        Component.translatable("tooltip.gtlcore.wireless_bookmark.quick_connect"),
                         Component.translatable("block.gtceu.pattern_buffer.desc.2"),
                         Component.translatable("gtceu.universal.enabled"))
                 .tooltipBuilder(GTL_ADD)
@@ -755,6 +848,8 @@ public class GTLMachines {
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.5"),
                         Component.translatable("gtlcore.machine.me_stocking_pattern_buffer.desc.0"),
                         Component.translatable("gtlcore.machine.me_stocking_pattern_buffer.desc.1"),
+                        Component.translatable("gtlcore.machine.pattern_quick_upload.tooltip"),
+                        Component.translatable("tooltip.gtlcore.wireless_bookmark.quick_connect"),
                         Component.translatable("block.gtceu.pattern_buffer.desc.2"),
                         Component.translatable("gtceu.universal.enabled"))
                 .tooltipBuilder(GTL_ADD)
@@ -775,6 +870,8 @@ public class GTLMachines {
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.3"),
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.4"),
                         Component.translatable("gtceu.machine.me_pattern_buffer.desc.5"),
+                        Component.translatable("gtlcore.machine.pattern_quick_upload.tooltip"),
+                        Component.translatable("tooltip.gtlcore.wireless_bookmark.quick_connect"),
                         Component.translatable("block.gtceu.pattern_buffer.desc.2"),
                         Component.translatable("gtceu.universal.enabled"))
                 .tooltipBuilder(GTL_ADD)
@@ -861,6 +958,8 @@ public class GTLMachines {
                 .langValue("ME Molecular Assembler IO")
                 .tooltips(Component.translatable("gtceu.universal.disabled"),
                         Component.translatable("gtceu.machine.me_molecular_assembler_io.tooltip.0"),
+                        Component.translatable("gtceu.machine.me_pattern_buffer.desc.3"),
+                        Component.translatable("gtlcore.machine.pattern_quick_upload.tooltip"),
                         Component.translatable("gtceu.machine.me_molecular_assembler_io.tooltip.1"))
                 .tooltipBuilder(GTL_ADD)
                 .register();

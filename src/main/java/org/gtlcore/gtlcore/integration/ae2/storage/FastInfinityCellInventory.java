@@ -2,6 +2,7 @@ package org.gtlcore.gtlcore.integration.ae2.storage;
 
 import org.gtlcore.gtlcore.GTLCore;
 import org.gtlcore.gtlcore.integration.ae2.FastInfinityCell;
+import org.gtlcore.gtlcore.integration.ae2.InfinityWaterCellData;
 import org.gtlcore.gtlcore.utils.StorageManager;
 import org.gtlcore.gtlcore.utils.datastructure.Int128;
 
@@ -21,10 +22,13 @@ import appeng.api.storage.cells.StorageCell;
 import appeng.core.AELog;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
+import java.math.BigInteger;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-public class FastInfinityCellInventory implements StorageCell {
+public class FastInfinityCellInventory implements StorageCell, PreciseStorageAmount {
 
     private final ISaveProvider container;
     private double storedItemCount;
@@ -32,6 +36,8 @@ public class FastInfinityCellInventory implements StorageCell {
     private final ItemStack stack;
     private boolean isPersisted = true;
     private final KeyCounter lists = new KeyCounter();
+    private final TerminalSourceIndex displayIndex = new TerminalSourceIndex();
+    private final Map<AEKey, BigInteger> displayOverflow = new HashMap<>();
 
     // Pool
     private final Int128 tempInt128 = Int128.ZERO();
@@ -176,10 +182,33 @@ public class FastInfinityCellInventory implements StorageCell {
         return this.storedMap;
     }
 
+    /** A snapshot for terminal display; never expose the mutable storage counter. */
+    public Int128 getDisplayAmount(AEKey key) {
+        Int128 amount = getCellItems().get(key);
+        return amount == null ? Int128.ZERO() : amount.copy();
+    }
+
+    @Override
+    public java.math.BigInteger getExactStoredAmount(AEKey key) {
+        return getDisplayAmount(key).toBigInteger();
+    }
+
     @Override
     public void getAvailableStacks(KeyCounter out) {
         this.getCellItems();
-        out.addAll(lists);
+        if (TerminalDisplayRead.tracks(out)) TerminalDisplayRead.append(out, lists, displayOverflow, displayIndex);
+        else out.addAll(lists);
+    }
+
+    private void updateDisplayAmount(AEKey key, Int128 amount) {
+        long nativeAmount = amount.longValue();
+        lists.set(key, nativeAmount);
+        if (nativeAmount == Long.MAX_VALUE || nativeAmount == Long.MIN_VALUE) {
+            BigInteger exact = amount.toBigInteger();
+            if (exact.bitLength() >= 64) displayOverflow.put(key, exact);
+            else displayOverflow.remove(key);
+        } else displayOverflow.remove(key);
+        displayIndex.set(key, nativeAmount, displayOverflow.get(key));
     }
 
     private void loadCellItems() {
@@ -202,8 +231,12 @@ public class FastInfinityCellInventory implements StorageCell {
             else {
                 var longArray = longArrayTag.getAsLongArray();
                 var count = new Int128(longArray[0], longArray[1]);
-                storedMap.put(key, count);
-                lists.add(key, count.longValue());
+                var total = count;
+                if (key instanceof AEItemKey itemKey && InfinityWaterCellData.isCell(itemKey.getItem()) && storedMap.containsKey(key)) {
+                    total = storedMap.get(key).copy().add(count);
+                }
+                storedMap.put(key, total);
+                updateDisplayAmount(key, total);
                 this.storedItemCount += count.doubleValue();
             }
         }
@@ -254,7 +287,7 @@ public class FastInfinityCellInventory implements StorageCell {
                 }
             });
             // 直接设置为Int128转换后的long值，而不是累加
-            lists.set(what, newValue.longValue());
+            updateDisplayAmount(what, newValue);
             this.saveChanges(amount);
         }
 
@@ -272,6 +305,8 @@ public class FastInfinityCellInventory implements StorageCell {
                 if (mode == Actionable.MODULATE) {
                     this.storedMap.remove(what);
                     lists.remove(what);
+                    displayOverflow.remove(what);
+                    displayIndex.set(what, 0, null);
                     this.saveChanges(-currentAmount.longValue());
                 }
                 return currentAmount.longValue();
@@ -280,7 +315,7 @@ public class FastInfinityCellInventory implements StorageCell {
                     // 直接修改现有对象以减少对象创建
                     currentAmount.subtract(tempInt128);
                     // 直接设置为Int128转换后的long值
-                    lists.set(what, currentAmount.longValue());
+                    updateDisplayAmount(what, currentAmount);
                     this.saveChanges(-amount);
                 }
                 return amount;

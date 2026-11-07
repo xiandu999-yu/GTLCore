@@ -1,21 +1,37 @@
 package org.gtlcore.gtlcore.forge;
 
 import org.gtlcore.gtlcore.GTLCore;
+import org.gtlcore.gtlcore.common.block.PlushieBlockEntity;
 import org.gtlcore.gtlcore.common.data.GTLBlocks;
 import org.gtlcore.gtlcore.common.data.GTLItems;
+import org.gtlcore.gtlcore.common.data.GTLPlushies;
 import org.gtlcore.gtlcore.common.item.PatternBoxBehavior;
+import org.gtlcore.gtlcore.common.machine.generator.WirelessChargingStationMachine;
 import org.gtlcore.gtlcore.config.ConfigHolder;
+import org.gtlcore.gtlcore.integration.ae2.wireless.WirelessAeNetworkRuntime;
+import org.gtlcore.gtlcore.integration.ae2.wireless.WirelessNetworkBindingToolItem;
 import org.gtlcore.gtlcore.utils.Registries;
+
+import com.gregtechceu.gtceu.api.capability.GTCapabilityHelper;
+import com.gregtechceu.gtceu.api.capability.ICoverable;
+import com.gregtechceu.gtceu.api.cover.CoverBehavior;
+import com.gregtechceu.gtceu.api.cover.IUICover;
+import com.gregtechceu.gtceu.api.gui.factory.CoverUIFactory;
+import com.gregtechceu.gtceu.api.machine.MetaMachine;
+import com.gregtechceu.gtceu.api.machine.feature.IUIMachine;
+import com.gregtechceu.gtceu.common.data.GTItems;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.monster.Shulker;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -34,6 +50,26 @@ import java.util.Objects;
 @Mod.EventBusSubscriber(modid = GTLCore.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ForgeCommonEventListener {
 
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onBindingToolLeftClick(PlayerInteractEvent.LeftClickBlock event) {
+        if (event.getItemStack().is(GTItems.TOOL_DATA_STICK.asItem()) &&
+                MetaMachine.getMachine(event.getLevel(), event.getPos()) instanceof WirelessChargingStationMachine station) {
+            event.setCanceled(true);
+            if (!event.getLevel().isClientSide) station.unbindTeam();
+            return;
+        }
+        if (!event.getEntity().isShiftKeyDown() ||
+                !(event.getEntity().getMainHandItem().getItem() instanceof org.gtlcore.gtlcore.integration.ae2.wireless.WirelessNetworkBindingToolItem) ||
+                !org.gtlcore.gtlcore.integration.ae2.wireless.WirelessAeNetworkRuntime.canOpenWirelessTargetMenu(event.getLevel(), event.getPos()))
+            return;
+        // Cancel on both sides, including creative mode, so unlinking cannot break the hatch.
+        event.setCanceled(true);
+        if (event.getLevel().isClientSide && event.getAction() == PlayerInteractEvent.LeftClickBlock.Action.START) {
+            org.gtlcore.gtlcore.integration.ae2.wireless.WirelessAePackets.CHANNEL.sendToServer(
+                    new org.gtlcore.gtlcore.integration.ae2.wireless.WirelessAePackets.UnbindWithToolPacket(event.getPos()));
+        }
+    }
+
     @SubscribeEvent
     public static void onPortalSpawnEvent(BlockEvent.PortalSpawnEvent event) {
         event.setCanceled(true);
@@ -41,6 +77,37 @@ public class ForgeCommonEventListener {
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        if (GTLPlushies.isExtendedFishbig(event.getLevel().getBlockState(event.getPos()).getBlock())) {
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.sidedSuccess(event.getLevel().isClientSide));
+            if (!event.getLevel().isClientSide && !event.getEntity().isSpectator() &&
+                    event.getLevel().getBlockEntity(event.getPos()) instanceof PlushieBlockEntity plushie) {
+                plushie.togglePlaying();
+            }
+            return;
+        }
+        if (event.getEntity().getOffhandItem().getItem() instanceof WirelessNetworkBindingToolItem &&
+                WirelessAeNetworkRuntime.canOpenWirelessTargetMenu(event.getLevel(), event.getPos()) &&
+                MetaMachine.getMachine(event.getLevel(), event.getPos()) instanceof IUIMachine machine) {
+            event.setCanceled(true);
+            if (!event.getEntity().mayBuild() || !event.getLevel().mayInteract(event.getEntity(), event.getPos())) {
+                event.setCancellationResult(InteractionResult.FAIL);
+                return;
+            }
+            event.setCancellationResult(InteractionResult.SUCCESS);
+            if (event.getEntity() instanceof ServerPlayer player) {
+                WirelessNetworkBindingToolItem.openNetworkTab(player, machine, event.getHitVec());
+            }
+            return;
+        }
+        if (event.getItemStack().is(GTItems.TOOL_DATA_STICK.asItem()) &&
+                MetaMachine.getMachine(event.getLevel(), event.getPos()) instanceof WirelessChargingStationMachine station) {
+            if (!event.getLevel().isClientSide) station.bindTeam(event.getEntity());
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
+            return;
+        }
+        if (openCoverUi(event)) return;
         if (event.getItemStack().is(GTLItems.PATTERN_BOX.asItem())) {
             InteractionResult result = PatternBoxBehavior.handleBlockUse(event.getItemStack(),
                     new UseOnContext(event.getLevel(), event.getEntity(), event.getHand(), event.getItemStack(), event.getHitVec()));
@@ -61,6 +128,27 @@ public class ForgeCommonEventListener {
         }
     }
 
+    private static boolean openCoverUi(PlayerInteractEvent.RightClickBlock event) {
+        if (event.getHand() != InteractionHand.MAIN_HAND || !event.getItemStack().isEmpty() ||
+                !event.getEntity().isShiftKeyDown() || event.getFace() == null) {
+            return false;
+        }
+        BlockHitResult hit = event.getHitVec();
+        var side = ICoverable.traceCoverSide(hit);
+        var coverable = GTCapabilityHelper.getCoverable(event.getLevel(), event.getPos(), side);
+        if (coverable == null) return false;
+        CoverBehavior cover = coverable.getCoverAtSide(side);
+        if (!(cover instanceof IUICover)) return false;
+
+        event.setCanceled(true);
+        event.setCancellationResult(InteractionResult.CONSUME);
+        if (event.getEntity() instanceof ServerPlayer player) {
+            CoverUIFactory.INSTANCE.openUI(cover, player);
+            player.swing(event.getHand());
+        }
+        return true;
+    }
+
     @SubscribeEvent
     public static void onFarmlandTrampleEvent(BlockEvent.FarmlandTrampleEvent event) {
         event.setCanceled(true);
@@ -75,7 +163,7 @@ public class ForgeCommonEventListener {
 
     @SubscribeEvent
     public static void onPlayerTickEvent(TickEvent.PlayerTickEvent event) {
-        if (ConfigHolder.INSTANCE.disableDrift && event.phase == TickEvent.Phase.END &&
+        if (ConfigHolder.INSTANCE.gameplay.disableDrift && event.phase == TickEvent.Phase.END &&
                 event.side == LogicalSide.CLIENT && event.player.xxa == 0 && event.player.zza == 0) {
             event.player.setDeltaMovement(event.player.getDeltaMovement().multiply(0.5, 1, 0.5));
         }
@@ -83,11 +171,9 @@ public class ForgeCommonEventListener {
 
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (ConfigHolder.INSTANCE.sendUpdateMessages && event.getEntity() instanceof ServerPlayer player) {
+        if (ConfigHolder.INSTANCE.gameplay.sendUpdateMessages && event.getEntity() instanceof ServerPlayer player) {
             player.displayClientMessage(Component.translatable("gtlcore.message.structure_update_notice"), false);
-            player.displayClientMessage(Component.translatable("block.gtceu.advanced_rare_earth_centrifugal"), false);
-            player.displayClientMessage(Component.translatable("block.gtceu.cooling_tower"), false);
-            player.displayClientMessage(Component.translatable("block.gtceu.space_cosmic_probe_receivers"), false);
+            player.displayClientMessage(Component.translatable("block.gtceu.huge_incubator"), false);
             player.displayClientMessage(Component.translatable("gtlcore.message.close_update_notice"), false);
         }
     }

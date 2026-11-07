@@ -12,7 +12,6 @@ import com.gregtechceu.gtceu.api.capability.recipe.*;
 import com.gregtechceu.gtceu.api.machine.feature.IRecipeLogicMachine;
 import com.gregtechceu.gtceu.api.recipe.GTRecipe;
 import com.gregtechceu.gtceu.api.recipe.content.Content;
-import com.gregtechceu.gtceu.api.recipe.content.ContentModifier;
 import com.gregtechceu.gtceu.api.recipe.ingredient.FluidIngredient;
 import com.gregtechceu.gtceu.api.recipe.ingredient.SizedIngredient;
 import com.gregtechceu.gtceu.utils.FluidStackHashStrategy;
@@ -63,6 +62,7 @@ public interface IParallelLogic {
         var copy = new GTRecipe(recipe.recipeType, recipe.id, recipe.inputs, recipeContents, recipe.tickInputs, recipe.tickOutputs,
                 recipe.inputChanceLogics, recipe.outputChanceLogics, recipe.tickInputChanceLogics, recipe.tickOutputChanceLogics,
                 recipe.conditions, recipe.ingredientActions, recipe.data, recipe.duration, recipe.isFuel);
+        RecipeExtensionCopier.copy(recipe, copy);
         ((IGTRecipe) copy).setRealParallels(((IGTRecipe) recipe).getRealParallels());
         copy.ocTier = recipe.ocTier;
         return copy;
@@ -102,6 +102,8 @@ public interface IParallelLogic {
     }
 
     static long getInputItemParallel(IRecipeCapabilityHolder holder, GTRecipe recipe, long parallelAmount) {
+        if (parallelAmount <= 1) return parallelAmount;
+        parallelAmount = limitItemAmount(recipe.getInputContents(ItemRecipeCapability.CAP), parallelAmount);
         if (parallelAmount <= 1) return parallelAmount;
         if (!(holder instanceof IRecipeCapabilityMachine machine)) return 1;
         if (machine.emptyRecipeHandlePart()) return 0;
@@ -147,6 +149,8 @@ public interface IParallelLogic {
     }
 
     static long getInputFluidParallel(IRecipeCapabilityHolder holder, GTRecipe recipe, long parallelAmount) {
+        if (parallelAmount <= 1) return parallelAmount;
+        parallelAmount = limitFluidAmount(recipe.getInputContents(FluidRecipeCapability.CAP), parallelAmount);
         if (parallelAmount <= 1) return parallelAmount;
         if (!(holder instanceof IRecipeCapabilityMachine machine)) return 1;
         if (machine.emptyRecipeHandlePart()) return 0;
@@ -219,6 +223,8 @@ public interface IParallelLogic {
 
     static long getOutputItemParallel(IRecipeCapabilityHolder holder, GTRecipe recipe, List<Content> contents, long multiplier) {
         if (multiplier <= 1L || contents.isEmpty()) return multiplier;
+        multiplier = limitItemAmount(contents, multiplier);
+        if (multiplier <= 1L) return multiplier;
         if (!(holder instanceof IRecipeCapabilityMachine machine)) return 1;
         if (machine.itemOutPutAlwaysMatch()) return multiplier;
 
@@ -249,6 +255,8 @@ public interface IParallelLogic {
 
     static long getOutputFluidParallel(IRecipeCapabilityHolder holder, GTRecipe recipe, List<Content> contents, long multiplier) {
         if (multiplier <= 1L || contents.isEmpty()) return multiplier;
+        multiplier = limitFluidAmount(contents, multiplier);
+        if (multiplier <= 1L) return multiplier;
         if (!(holder instanceof IRecipeCapabilityMachine machine)) return 1;
         if (machine.fluidOutPutAlwaysMatch()) return multiplier;
 
@@ -273,6 +281,27 @@ public interface IParallelLogic {
         return binarySearchMaxParallel(machine, recipe, FluidRecipeCapability.CAP, ingredients, multiplier);
     }
 
+    private static long limitFluidAmount(List<Content> contents, long parallelAmount) {
+        for (Content content : contents) {
+            long amount = FluidRecipeCapability.CAP.of(content.content).getAmount();
+            if (amount <= 0) return 0;
+            parallelAmount = Math.min(parallelAmount, Long.MAX_VALUE / amount);
+        }
+        return parallelAmount;
+    }
+
+    private static long limitItemAmount(List<Content> contents, long parallelAmount) {
+        for (Content content : contents) {
+            Ingredient ingredient = ItemRecipeCapability.CAP.of(content.content);
+            long amount = ingredient instanceof LongIngredient longIngredient ?
+                    longIngredient.getActualAmount() :
+                    ingredient instanceof SizedIngredient sizedIngredient ? sizedIngredient.getAmount() : 1;
+            if (amount <= 0) return 0;
+            parallelAmount = Math.min(parallelAmount, Long.MAX_VALUE / amount);
+        }
+        return parallelAmount;
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> long binarySearchMaxParallel(IRecipeCapabilityMachine machine, GTRecipe recipe,
                                                     RecipeCapability<T> capability, List<T> ingredients, long initialMultiplier) {
@@ -285,8 +314,9 @@ public interface IParallelLogic {
             long mid = left + (right - left + 1) / 2;
 
             List<T> copied = new ObjectArrayList<>(ingredients.size());
+            var modifier = IAdvancedContentModifier.preciseMultiplier(mid);
             for (var ing : ingredients) {
-                copied.add(capability.copyWithModifier(ing, ContentModifier.multiplier((double) mid)));
+                copied.add(capability.copyWithModifier(ing, modifier));
             }
 
             boolean canHandle = false;

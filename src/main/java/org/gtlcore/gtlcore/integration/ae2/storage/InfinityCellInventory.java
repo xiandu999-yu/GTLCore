@@ -2,6 +2,7 @@ package org.gtlcore.gtlcore.integration.ae2.storage;
 
 import org.gtlcore.gtlcore.GTLCore;
 import org.gtlcore.gtlcore.integration.ae2.InfinityCell;
+import org.gtlcore.gtlcore.integration.ae2.InfinityWaterCellData;
 import org.gtlcore.gtlcore.utils.NumberUtils;
 import org.gtlcore.gtlcore.utils.StorageManager;
 
@@ -18,10 +19,12 @@ import appeng.core.AELog;
 import it.unimi.dsi.fastutil.objects.*;
 
 import java.math.BigInteger;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-public class InfinityCellInventory implements StorageCell {
+public class InfinityCellInventory implements StorageCell, PreciseStorageAmount {
 
     private final ISaveProvider container;
     private final AEKeyType keyType;
@@ -30,6 +33,8 @@ public class InfinityCellInventory implements StorageCell {
     private final ItemStack stack;
     private boolean isPersisted = true;
     private final KeyCounter lists = new KeyCounter();
+    private final TerminalSourceIndex displayIndex = new TerminalSourceIndex();
+    private final Map<AEKey, BigInteger> displayOverflow = new HashMap<>();
 
     public InfinityCellInventory(AEKeyType keyType, ItemStack stack, ISaveProvider saveProvider) {
         this.stack = stack;
@@ -171,9 +176,22 @@ public class InfinityCellInventory implements StorageCell {
     }
 
     @Override
+    public BigInteger getExactStoredAmount(AEKey key) {
+        return getCellItems().getOrDefault(key, BigInteger.ZERO);
+    }
+
+    @Override
     public void getAvailableStacks(KeyCounter out) {
         this.getCellItems();
-        out.addAll(lists);
+        if (TerminalDisplayRead.tracks(out)) TerminalDisplayRead.append(out, lists, displayOverflow, displayIndex);
+        else out.addAll(lists);
+    }
+
+    private void updateDisplayAmount(AEKey key, BigInteger amount) {
+        lists.set(key, NumberUtils.getLongValue(amount));
+        if (amount.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) > 0 || amount.compareTo(BigInteger.valueOf(Long.MIN_VALUE)) < 0) displayOverflow.put(key, amount);
+        else displayOverflow.remove(key);
+        displayIndex.set(key, lists.get(key), displayOverflow.get(key));
     }
 
     private void loadCellItems() {
@@ -195,8 +213,12 @@ public class InfinityCellInventory implements StorageCell {
             if (amount.isEmpty() || key == null) corruptedTag = true;
             else {
                 var count = new BigInteger(amount);
-                storedMap.put(key, count);
-                lists.add(key, NumberUtils.getLongValue(count));
+                var total = count;
+                if (key instanceof AEItemKey itemKey && InfinityWaterCellData.isCell(itemKey.getItem())) {
+                    total = storedMap.getOrDefault(key, BigInteger.ZERO).add(count);
+                }
+                storedMap.put(key, total);
+                updateDisplayAmount(key, total);
                 this.storedItemCount += count.doubleValue();
             }
         }
@@ -239,8 +261,8 @@ public class InfinityCellInventory implements StorageCell {
 
         if (mode == Actionable.MODULATE) {
             BigInteger finalAmount = BigInteger.valueOf(amount);
-            getCellItems().compute(what, (k, v) -> v == null ? finalAmount : v.add(finalAmount));
-            lists.add(what, amount);
+            BigInteger updated = getCellItems().compute(what, (k, v) -> v == null ? finalAmount : v.add(finalAmount));
+            updateDisplayAmount(what, updated);
             this.saveChanges(amount);
         }
 
@@ -258,6 +280,8 @@ public class InfinityCellInventory implements StorageCell {
                 if (mode == Actionable.MODULATE) {
                     this.storedMap.remove(what);
                     lists.remove(what);
+                    displayOverflow.remove(what);
+                    displayIndex.set(what, 0, null);
                     this.saveChanges(-amount);
                 }
                 return currentAmount.longValue();
@@ -265,7 +289,7 @@ public class InfinityCellInventory implements StorageCell {
                 if (mode == Actionable.MODULATE) {
                     var sub = currentAmount.subtract(extractAmount);
                     this.storedMap.put(what, sub);
-                    lists.remove(what, amount);
+                    updateDisplayAmount(what, sub);
                     this.saveChanges(-amount);
                 }
                 return amount;

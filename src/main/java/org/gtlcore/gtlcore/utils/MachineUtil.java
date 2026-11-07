@@ -4,7 +4,10 @@ import org.gtlcore.gtlcore.api.recipe.RecipeResult;
 
 import com.gregtechceu.gtceu.GTCEu;
 import com.gregtechceu.gtceu.api.capability.recipe.IO;
+import com.gregtechceu.gtceu.api.machine.feature.IRecipeLogicMachine;
+import com.gregtechceu.gtceu.api.machine.feature.multiblock.IMultiController;
 import com.gregtechceu.gtceu.api.machine.multiblock.WorkableMultiblockMachine;
+import com.gregtechceu.gtceu.api.machine.multiblock.part.MultiblockPartMachine;
 import com.gregtechceu.gtceu.api.recipe.GTRecipe;
 import com.gregtechceu.gtceu.api.recipe.ingredient.IntCircuitIngredient;
 import com.gregtechceu.gtceu.common.data.GTRecipeTypes;
@@ -15,14 +18,17 @@ import com.lowdragmc.lowdraglib.side.fluid.FluidStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.common.util.Lazy;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.gtlcore.gtlcore.api.recipe.RecipeRunnerHelper.*;
@@ -37,6 +43,15 @@ public class MachineUtil {
             getItem("kubejs:magnetohydrodynamicallyconstrainedstarmatter_leggings"), EquipmentSlot.LEGS,
             getItem("kubejs:magnetohydrodynamicallyconstrainedstarmatter_chestplate"), EquipmentSlot.CHEST,
             getItem("kubejs:magnetohydrodynamicallyconstrainedstarmatter_helmet"), EquipmentSlot.HEAD));
+
+    private static final String LEGGINGS_SUFFIX = "leggings";
+    private static final String PANTS_SUFFIX = "pants";
+
+    private static final List<Map<EquipmentSlot, ResourceLocation>> NO_CLIP_ARMOR_SETS = List.of(
+            createArmorSet("kubejs:fermium_", LEGGINGS_SUFFIX),
+            createArmorSet("kubejs:space_fermium_", LEGGINGS_SUFFIX),
+            createArmorSet("avaritia:infinity_", PANTS_SUFFIX),
+            createArmorSet("kubejs:magnetohydrodynamicallyconstrainedstarmatter_", LEGGINGS_SUFFIX));
 
     private MachineUtil() {
         throw new IllegalAccessError();
@@ -106,6 +121,19 @@ public class MachineUtil {
         return false;
     }
 
+    /**
+     * 通知部件的所有控制器重新检查配方逻辑订阅。
+     * 用于库存类（stocking）输入部件的暂停切换：其"库存"即 ME 网络，
+     * 暂停/恢复不会产生本地库存变化通知，需主动唤醒可能已退订休眠的控制器。
+     */
+    public static void notifyControllersRecipeLogic(MultiblockPartMachine part) {
+        for (IMultiController controller : part.getControllers()) {
+            if (controller instanceof IRecipeLogicMachine machine) {
+                machine.getRecipeLogic().updateTickSubscription();
+            }
+        }
+    }
+
     public static void createItemEntity(ServerLevel level, double x, double y, double z, ItemStack itemStack) {
         final var newItem = new ItemEntity(level, x, y, z, itemStack);
         newItem.setDeltaMovement(0.0, 0.2, 0.0);
@@ -116,5 +144,19 @@ public class MachineUtil {
     public static boolean hasFullArmorSet(ServerPlayer player) {
         return armorMap.get().entrySet().stream()
                 .allMatch(entry -> player.getItemBySlot(entry.getValue()).is(entry.getKey()));
+    }
+
+    public static boolean hasNoClipArmorSet(Player player) {
+        return NO_CLIP_ARMOR_SETS.stream().anyMatch(armorSet -> armorSet.entrySet().stream()
+                .allMatch(entry -> entry.getValue().equals(
+                        Registries.getResourceKey(player.getItemBySlot(entry.getKey())))));
+    }
+
+    private static Map<EquipmentSlot, ResourceLocation> createArmorSet(String prefix, String legsSuffix) {
+        return Map.of(
+                EquipmentSlot.FEET, new ResourceLocation(prefix + "boots"),
+                EquipmentSlot.LEGS, new ResourceLocation(prefix + legsSuffix),
+                EquipmentSlot.CHEST, new ResourceLocation(prefix + "chestplate"),
+                EquipmentSlot.HEAD, new ResourceLocation(prefix + "helmet"));
     }
 }

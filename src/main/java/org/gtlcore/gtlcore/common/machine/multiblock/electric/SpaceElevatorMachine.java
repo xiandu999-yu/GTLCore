@@ -4,12 +4,14 @@ import org.gtlcore.gtlcore.api.machine.multiblock.IModularMachineHost;
 import org.gtlcore.gtlcore.api.machine.multiblock.IModularMachineModule;
 import org.gtlcore.gtlcore.api.recipe.RecipeResult;
 import org.gtlcore.gtlcore.client.gui.widget.IExtendedClickData;
+import org.gtlcore.gtlcore.common.data.GTLBlocks;
 import org.gtlcore.gtlcore.utils.MachineUtil;
-import org.gtlcore.gtlcore.utils.Registries;
 import org.gtlcore.gtlcore.utils.datastructure.ModuleRenderInfo;
 
 import com.gregtechceu.gtceu.api.gui.GuiTextures;
 import com.gregtechceu.gtceu.api.machine.IMachineBlockEntity;
+import com.gregtechceu.gtceu.api.machine.MetaMachine;
+import com.gregtechceu.gtceu.api.machine.TickableSubscription;
 import com.gregtechceu.gtceu.api.machine.feature.IMachineLife;
 
 import com.lowdragmc.lowdraglib.gui.util.ClickData;
@@ -38,17 +40,30 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachine.ASSEMBLER_MODULE;
-import static org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachine.RESOURCE_COLLECTION;
+import static org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachineA.ASSEMBLER_MODULE;
+import static org.gtlcore.gtlcore.common.data.machines.AdvancedMultiBlockMachineA.RESOURCE_COLLECTION;
 
 public class SpaceElevatorMachine extends TierCasingMachine
                                   implements IModularMachineHost<SpaceElevatorMachine>, IMachineLife {
 
     private final Set<IModularMachineModule<SpaceElevatorMachine, ?>> modules = new ReferenceOpenHashSet<>();
     private int mam = 0;
+    private TickableSubscription connectionSubscription;
 
     public SpaceElevatorMachine(IMachineBlockEntity holder) {
         super(holder, "SEPMTier");
+    }
+
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        updateConnectionSubscription();
+    }
+
+    @Override
+    public void onUnload() {
+        stopConnectionSubscription();
+        super.onUnload();
     }
 
     @Override
@@ -60,18 +75,53 @@ public class SpaceElevatorMachine extends TierCasingMachine
     public void onStructureInvalid() {
         super.onStructureInvalid();
         safeClearModules();
+        stopConnectionSubscription();
     }
 
     @Override
     public void onMachineRemoved() {
         safeClearModules();
+        stopConnectionSubscription();
     }
 
     @Override
     public void onStructureFormed() {
         super.onStructureFormed();
         safeClearModules();
-        scanAndConnectModules();
+        scanAndConnectSpaceElevatorModules("host_structure_formed");
+        updateConnectionSubscription();
+    }
+
+    /**
+     * 主机侧周期性兜底重连：仅当已连接模块数少于槽位数时重扫。
+     * 修复「主机已成型后拆除模块再重新放置、或模块事件时序错过」时不再连接的问题
+     * （模块成型事件只会在模块自身生命周期触发一次，主机不再重扫则永久掉线）。
+     */
+    private void updateConnectionSubscription() {
+        if (isFormed()) {
+            if (connectionSubscription == null) {
+                connectionSubscription = subscribeServerTick(this::connectionTick);
+            }
+        } else {
+            stopConnectionSubscription();
+        }
+    }
+
+    private void stopConnectionSubscription() {
+        if (connectionSubscription != null) {
+            connectionSubscription.unsubscribe();
+            connectionSubscription = null;
+        }
+    }
+
+    private void connectionTick() {
+        if (!isFormed()) {
+            stopConnectionSubscription();
+            return;
+        }
+        if (getOffsetTimer() % 20L == 0L && modules.size() < getModuleScanPositions().length) {
+            scanAndConnectSpaceElevatorModules("host_periodic_retry");
+        }
     }
 
     @Override
@@ -155,16 +205,55 @@ public class SpaceElevatorMachine extends TierCasingMachine
     }
 
     private BlockPos getPowerCore(BlockPos pos, Level level) {
+        if (level == null) {
+            return null;
+        }
         BlockPos[] coordinates = new BlockPos[] { pos.offset(3, -2, 0),
                 pos.offset(-3, -2, 0),
                 pos.offset(0, -2, 3),
                 pos.offset(0, -2, -3) };
         for (BlockPos blockPos : coordinates) {
-            if (Objects.equals(Registries.getBlockId(level.getBlockState(blockPos).getBlock()), "gtlcore:power_core")) {
+            if (level.getBlockState(blockPos).is(GTLBlocks.POWER_CORE.get())) {
                 return blockPos;
             }
         }
         return null;
+    }
+
+    private void scanAndConnectSpaceElevatorModules(String trigger) {
+        Level level = getLevel();
+        if (level == null) {
+            return;
+        }
+        BlockPos powerCore = getPowerCore(getPos(), level);
+        BlockPos[] positions = getModuleScanPositions();
+
+        for (BlockPos pos : positions) {
+            MetaMachine machine = MetaMachine.getMachine(level, pos);
+            boolean formed = machine instanceof IModularMachineModule<?, ?> module && module.isFormed();
+            boolean valid = isValidModule(machine);
+
+            if (valid) {
+                @SuppressWarnings("unchecked")
+                IModularMachineModule<SpaceElevatorMachine, ?> module = (IModularMachineModule<SpaceElevatorMachine, ?>) machine;
+                module.connectToHost(this);
+
+            }
+        }
+    }
+
+    private static String candidateRejection(MetaMachine machine, boolean formed) {
+        if (machine == null) {
+            return "missing_machine";
+        }
+        if (!(machine instanceof IModularMachineModule<?, ?>)) {
+            return "wrong_machine_type";
+        }
+        return formed ? "incompatible_host_type" : "module_not_formed";
+    }
+
+    private static String machineType(MetaMachine machine) {
+        return machine == null ? "none" : machine.getClass().getName();
     }
 
     private int getMAM() {
@@ -172,6 +261,11 @@ public class SpaceElevatorMachine extends TierCasingMachine
             mam = getFormedModuleCount();
         }
         return mam;
+    }
+
+    @Override
+    public boolean keepSubscribing() {
+        return true;
     }
 
     @Override

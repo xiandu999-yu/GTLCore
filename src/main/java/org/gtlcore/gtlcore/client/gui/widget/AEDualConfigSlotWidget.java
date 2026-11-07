@@ -1,5 +1,7 @@
 package org.gtlcore.gtlcore.client.gui.widget;
 
+import org.gtlcore.gtlcore.integration.ae2.MEFluidUnits;
+import org.gtlcore.gtlcore.integration.jei.JeiMissingIngredientBookmarks;
 import org.gtlcore.gtlcore.utils.Registries;
 
 import com.gregtechceu.gtceu.api.gui.GuiTextures;
@@ -9,8 +11,10 @@ import com.gregtechceu.gtceu.integration.ae2.slot.IConfigurableSlot;
 import com.gregtechceu.gtceu.integration.ae2.utils.AEUtil;
 
 import com.lowdragmc.lowdraglib.LDLib;
+import com.lowdragmc.lowdraglib.gui.ingredient.IIngredientSlot;
 import com.lowdragmc.lowdraglib.gui.ingredient.Target;
 import com.lowdragmc.lowdraglib.gui.util.DrawerHelper;
+import com.lowdragmc.lowdraglib.gui.util.TextFormattingUtil;
 import com.lowdragmc.lowdraglib.gui.widget.Widget;
 import com.lowdragmc.lowdraglib.side.fluid.FluidStack;
 import com.lowdragmc.lowdraglib.side.fluid.FluidTransferHelper;
@@ -29,7 +33,6 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 
 import appeng.api.stacks.AEFluidKey;
 import appeng.api.stacks.AEItemKey;
-import appeng.api.stacks.AmountFormat;
 import appeng.api.stacks.GenericStack;
 import com.google.common.collect.Lists;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -48,13 +51,16 @@ import static com.lowdragmc.lowdraglib.gui.widget.PhantomFluidWidget.drainFrom;
 /**
  * @author EasterFG on 2025/3/7
  */
-public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, IGhostFluidTarget {
+public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, IGhostFluidTarget, IIngredientSlot {
+
+    private static final int COMPACT_AMOUNT_MAX_LENGTH = 4;
 
     protected AEDualConfigWidget parentWidget;
     protected int index;
     protected final static int REMOVE_ID = 1000;
     protected final static int ITEM_UPDATE_ID = 1001;
     protected final static int FLUID_UPDATE_ID = 1002;
+    protected final static int AMOUNT_SCROLL_ID = 1003;
 
     @Setter
     protected boolean select = false;
@@ -66,7 +72,7 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
     }
 
     protected int getIndex() {
-        return (this.parentWidget.page - 1) * AEDualConfigWidget.CONFIG_SIZE + index;
+        return this.parentWidget.getSlotIndex(index);
     }
 
     @OnlyIn(Dist.CLIENT)
@@ -80,11 +86,13 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
                 hoverStringList.add(Component.translatable("gtceu.gui.config_slot"));
                 if (this.parentWidget.isAutoPull()) {
                     hoverStringList.add(Component.translatable("gtceu.gui.config_slot.auto_pull_managed"));
+                } else if (this.parentWidget.isAmountEditingEnabled()) {
+                    hoverStringList.add(Component.translatable("gtceu.gui.config_slot.set"));
+                    hoverStringList.add(Component.translatable("gtceu.gui.config_slot.scroll"));
                 } else {
                     hoverStringList.add(Component.translatable("gtceu.gui.config_slot.set_only"));
-                    hoverStringList.add(Component.translatable("gtceu.gui.config_slot.remove"));
-                    hoverStringList.add(Component.translatable("gtceu.gui.config_slot.remove"));
                 }
+                hoverStringList.add(Component.translatable("gtceu.gui.config_slot.remove"));
                 graphics.renderTooltip(Minecraft.getInstance().font, hoverStringList, Optional.empty(), mouseX, mouseY);
             }
         } else {
@@ -109,6 +117,26 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
     protected boolean mouseOverStock(double mouseX, double mouseY) {
         Position position = getPosition();
         return isMouseOver(position.x, position.y + 18, 18, 18, mouseX, mouseY);
+    }
+
+    @Override
+    public Object getXEIIngredientOverMouse(double mouseX, double mouseY) {
+        boolean configHovered = mouseOverConfig(mouseX, mouseY);
+        boolean stockHovered = mouseOverStock(mouseX, mouseY);
+        if (!configHovered && !stockHovered) {
+            return null;
+        }
+
+        IConfigurableSlot slot = parentWidget.getDisplay(getIndex());
+        GenericStack stack = configHovered ? slot.getConfig() : slot.getStock();
+        if (stack == null) {
+            return null;
+        }
+
+        int slotHeight = getSizeHeight() / 2;
+        int slotY = getPositionY() + (stockHovered ? slotHeight : 0);
+        var area = new Rect2i(getPositionX(), slotY, getSizeWidth(), slotHeight);
+        return JeiMissingIngredientBookmarks.createClickableIngredient(stack.what(), area).orElse(null);
     }
 
     @OnlyIn(Dist.CLIENT)
@@ -153,6 +181,10 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
                     DrawerHelper.drawFluidForGui(graphics, stack, config.amount(), stackX, stackY, 16, 16);
                 }
             }
+            if (this.parentWidget.isAmountEditingEnabled() && !this.parentWidget.isAutoPull()) {
+                String amount = formatAmount(config);
+                drawStringFixedCorner(graphics, amount, stackX + 17, stackY + 17, 16777215, true, 0.5f);
+            }
         }
 
         if (stock != null) {
@@ -167,7 +199,7 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
                 }
             }
             if (stock.amount() > 0) {
-                drawStringFixedCorner(graphics, stock.what().formatAmount(stock.amount(), AmountFormat.SLOT),
+                drawStringFixedCorner(graphics, formatAmount(stock),
                         stackX + 17, stackY + 18 + 17, 16777215, true, 0.5f);
             }
             if (mouseOverConfig(mouseX, mouseY)) {
@@ -176,6 +208,13 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
                 drawSelectionOverlay(graphics, stackX, stackY + 18, 16, 16);
             }
         }
+    }
+
+    private static String formatAmount(GenericStack stack) {
+        if (stack.what() instanceof AEFluidKey) {
+            return MEFluidUnits.formatDisplayAmount(stack.amount());
+        }
+        return TextFormattingUtil.formatLongToCompactString(stack.amount(), COMPACT_AMOUNT_MAX_LENGTH);
     }
 
     @OnlyIn(Dist.CLIENT)
@@ -199,6 +238,7 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
 
             if (button == 1) {
                 writeClientAction(REMOVE_ID, buf -> {});
+                this.parentWidget.disableAmount();
             } else if (button == 0) {
                 ItemStack item = this.gui.getModularUIContainer().getCarried();
                 FluidStack fluid = FluidTransferHelper.getFluidContained(item);
@@ -207,9 +247,30 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
                 } else if (!item.isEmpty()) {
                     writeClientAction(ITEM_UPDATE_ID, buf -> buf.writeItem(item));
                 }
+                if (this.parentWidget.isAmountEditingEnabled()) {
+                    this.parentWidget.enableAmount(this.getIndex());
+                    this.select = true;
+                }
             }
         }
         return false;
+    }
+
+    @OnlyIn(Dist.CLIENT)
+    @Override
+    public boolean mouseWheelMove(double mouseX, double mouseY, double wheelDelta) {
+        if (!parentWidget.isAmountEditingEnabled() || parentWidget.isAutoPull() ||
+                wheelDelta == 0 || !mouseOverConfig(mouseX, mouseY) ||
+                parentWidget.getDisplay(getIndex()).getConfig() == null) {
+            return false;
+        }
+
+        boolean control = isCtrlDown();
+        writeClientAction(AMOUNT_SCROLL_ID, buffer -> {
+            buffer.writeBoolean(wheelDelta > 0);
+            buffer.writeBoolean(control);
+        });
+        return true;
     }
 
     // handler network
@@ -242,6 +303,26 @@ public class AEDualConfigSlotWidget extends Widget implements IGhostItemTarget, 
             this.parentWidget.setFluidConfig(index, stack);
             if (fluid != FluidStack.empty()) {
                 writeUpdateInfo(FLUID_UPDATE_ID, fluid::writeToBuf);
+            }
+        }
+
+        if (id == AMOUNT_SCROLL_ID && parentWidget.isAmountEditingEnabled() && !parentWidget.isAutoPull()) {
+            GenericStack config = slot.getConfig();
+            if (config == null) return;
+
+            boolean increase = buffer.readBoolean();
+            boolean control = buffer.readBoolean();
+            long amount = config.amount();
+            long newAmount;
+            if (control) {
+                if (increase && amount > Long.MAX_VALUE / 1000) return;
+                newAmount = increase ? amount * 1000 : amount / 1000;
+            } else {
+                if (increase && amount == Long.MAX_VALUE) return;
+                newAmount = amount + (increase ? 1 : -1);
+            }
+            if (newAmount > 0) {
+                slot.setConfig(new GenericStack(config.what(), newAmount));
             }
         }
     }

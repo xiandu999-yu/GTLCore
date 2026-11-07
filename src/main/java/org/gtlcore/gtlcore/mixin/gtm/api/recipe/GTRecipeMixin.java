@@ -36,6 +36,18 @@ public abstract class GTRecipeMixin implements IGTRecipe {
     @Getter
     private long realParallels = 1;
     @Unique
+    @Getter
+    @Setter
+    private int batchSize = 1;
+    @Unique
+    @Getter
+    @Setter
+    private boolean batchProcessed;
+    @Unique
+    @Getter
+    @Setter
+    private boolean subTickParallelized;
+    @Unique
     @Setter
     private boolean hasTick;
     @Unique

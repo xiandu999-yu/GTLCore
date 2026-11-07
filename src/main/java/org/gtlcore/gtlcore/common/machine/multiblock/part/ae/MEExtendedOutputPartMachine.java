@@ -57,6 +57,10 @@ public class MEExtendedOutputPartMachine extends MEExtendedOutputPartMachineBase
         notifyHandlers();
     }
 
+    public MEOutputFilterHandler getFilterHandler() {
+        return filterHandler;
+    }
+
     // ========================================
     // GUI SYSTEM
     // ========================================
@@ -78,13 +82,13 @@ public class MEExtendedOutputPartMachine extends MEExtendedOutputPartMachineBase
     // DataStick Copy
     // ========================================
 
-    protected CompoundTag writeConfigToTag() {
+    public CompoundTag writeConfigToTag() {
         var tag = super.writeConfigToTag();
         tag.put("meOutputFilterHandler", filterHandler.serializeNBT());
         return tag;
     }
 
-    protected void readConfigFromTag(CompoundTag tag) {
+    public void readConfigFromTag(CompoundTag tag) {
         super.readConfigFromTag(tag);
         if (tag.contains("meOutputFilterHandler")) {
             filterHandler.deserializeNBT(tag.getCompound("meOutputFilterHandler"));

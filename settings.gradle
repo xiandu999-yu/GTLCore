@@ -8,3 +8,6 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+include 'cgse-engine'
+include 'vre-engine'

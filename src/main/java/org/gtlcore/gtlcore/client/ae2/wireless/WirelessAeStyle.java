@@ -8,16 +8,38 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
+import appeng.client.gui.widgets.Scrollbar;
 import org.jetbrains.annotations.NotNull;
 
 final class WirelessAeStyle {
 
     static final int TEXT = 0xFF303030;
     static final int MUTED_TEXT = 0xFF5A5A5A;
+    static final int TEXT_FIELD_TEXT = 0xFFFFFFFF;
+    static final int TEXT_FIELD_UNEDITABLE = 0xFFAAAAAA;
     static final int WARNING_TEXT = 0xFFA33A2A;
     static final int ONLINE_TEXT = 0xFF245F68;
+    static final int AE2_SCROLLBAR_WIDTH = Scrollbar.SMALL.handleWidth();
+    /** Height of an AE2 text field's visual frame. */
+    static final int AE2_TEXT_FIELD_HEIGHT = 12;
+    /** Inset of the editable text area inside that frame, on both axes. */
+    static final int AE2_TEXT_FIELD_PADDING = 2;
+    private static final int PANEL_LIGHT_BORDER = 0xFFEEEEEE;
+    private static final int PANEL_HIGHLIGHT = 0xFFFFFFFF;
+    private static final int PANEL_SHADOW = 0xFF555555;
+    private static final int PANEL_SHADE = 0xFF8A8A8A;
+    private static final int PANEL_BACKGROUND_FILL = 0xFFCBCCD4;
 
     private static final ResourceLocation AE2_BACKGROUND = new ResourceLocation("ae2", "textures/guis/background.png");
+    private static final ResourceLocation AE2_TEXT_FIELD = new ResourceLocation("ae2", "textures/guis/text_field.png");
+    /** AE2's {@code guis/text_field.png} is a 128x128 sheet sliced horizontally: 1px edges, stretched centre. */
+    private static final int AE2_TEXT_FIELD_TEXTURE_SIZE = 128;
+    private static final int AE2_TEXT_FIELD_EDGE = 1;
+    private static final int AE2_TEXT_FIELD_CENTER_SOURCE_WIDTH = 126;
+    /** Vertical offset of each state row inside the sheet. */
+    private static final int AE2_TEXT_FIELD_STATE_NORMAL = 0;
+    private static final int AE2_TEXT_FIELD_STATE_DISABLED = 12;
+    private static final int AE2_TEXT_FIELD_STATE_FOCUSED = 24;
     private static final ResourceLocation INSET_PANEL = wirelessTexture("inset_panel.png");
     private static final ResourceLocation TEXT_FIELD = wirelessTexture("text_field.png");
     private static final ResourceLocation SEPARATOR = wirelessTexture("separator.png");
@@ -45,6 +67,7 @@ final class WirelessAeStyle {
     private static final int DISABLED_CROSS_Y = 6;
     private static final int DISABLED_CROSS_WIDTH = 8;
     private static final int DISABLED_CROSS_HEIGHT = 8;
+    private static final Scrollbar.Style AE2_SCROLLBAR_STYLE = Scrollbar.SMALL;
     private static final int WARNING_MARK_X = 4;
     private static final int WARNING_MARK_Y = 4;
     private static final int WARNING_MARK_WIDTH = 4;
@@ -53,15 +76,8 @@ final class WirelessAeStyle {
     private WirelessAeStyle() {}
 
     static void drawPanel(GuiGraphics graphics, int x, int y, int width, int height) {
-        graphics.blit(AE2_BACKGROUND, x, y, 0.0F, 0.0F, width, height, PANEL_TEXTURE_SIZE, PANEL_TEXTURE_SIZE);
-        graphics.fill(x, y, x + width, y + 1, 0xFFEEEEEE);
-        graphics.fill(x, y, x + 1, y + height, 0xFFEEEEEE);
-        graphics.fill(x + width - 1, y, x + width, y + height, 0xFF555555);
-        graphics.fill(x, y + height - 1, x + width, y + height, 0xFF555555);
-        graphics.fill(x + 1, y + 1, x + width - 1, y + 2, 0xFFFFFFFF);
-        graphics.fill(x + 1, y + 1, x + 2, y + height - 1, 0xFFFFFFFF);
-        graphics.fill(x + 1, y + height - 2, x + width - 1, y + height - 1, 0xFF8A8A8A);
-        graphics.fill(x + width - 2, y + 1, x + width - 1, y + height - 1, 0xFF8A8A8A);
+        drawPanelBackground(graphics, x, y, width, height);
+        drawPanelFrame(graphics, x, y, width, height, PANEL_SHADOW, PANEL_SHADE);
     }
 
     static void drawInsetPanel(GuiGraphics graphics, int x, int y, int width, int height) {
@@ -70,6 +86,55 @@ final class WirelessAeStyle {
 
     static void drawTextField(GuiGraphics graphics, int x, int y, int width) {
         drawNineSlice(graphics, TEXT_FIELD, x, y, width, 20, 120, 20, 3);
+    }
+
+    static void drawAe2TextField(GuiGraphics graphics, int x, int y, int width) {
+        drawAe2TextField(graphics, x, y, width, true, false);
+    }
+
+    /**
+     * Draws AE2's text field frame the way {@code AETextField} does: 1px left edge, a stretched centre and a 1px
+     * right edge, taken from the state row matching {@code editable}/{@code focused}.
+     */
+    static void drawAe2TextField(GuiGraphics graphics, int x, int y, int width, boolean editable, boolean focused) {
+        if (width <= 0) {
+            return;
+        }
+
+        int sourceY = !editable ? AE2_TEXT_FIELD_STATE_DISABLED :
+                (focused ? AE2_TEXT_FIELD_STATE_FOCUSED : AE2_TEXT_FIELD_STATE_NORMAL);
+        int centerWidth = Math.max(0, width - AE2_TEXT_FIELD_EDGE * 2);
+        blitRegion(graphics, AE2_TEXT_FIELD, x, y, 0, sourceY, AE2_TEXT_FIELD_EDGE, AE2_TEXT_FIELD_HEIGHT,
+                AE2_TEXT_FIELD_TEXTURE_SIZE, AE2_TEXT_FIELD_TEXTURE_SIZE);
+        if (centerWidth > 0) {
+            graphics.blit(
+                    AE2_TEXT_FIELD,
+                    x + AE2_TEXT_FIELD_EDGE,
+                    y,
+                    centerWidth,
+                    AE2_TEXT_FIELD_HEIGHT,
+                    AE2_TEXT_FIELD_EDGE,
+                    sourceY,
+                    Math.min(AE2_TEXT_FIELD_CENTER_SOURCE_WIDTH, centerWidth),
+                    AE2_TEXT_FIELD_HEIGHT,
+                    AE2_TEXT_FIELD_TEXTURE_SIZE,
+                    AE2_TEXT_FIELD_TEXTURE_SIZE);
+        }
+        blitRegion(graphics, AE2_TEXT_FIELD, x + width - AE2_TEXT_FIELD_EDGE, y,
+                AE2_TEXT_FIELD_TEXTURE_SIZE - AE2_TEXT_FIELD_EDGE, sourceY, AE2_TEXT_FIELD_EDGE,
+                AE2_TEXT_FIELD_HEIGHT, AE2_TEXT_FIELD_TEXTURE_SIZE, AE2_TEXT_FIELD_TEXTURE_SIZE);
+    }
+
+    /** Width available for text inside an AE2 text field frame of {@code frameWidth}, matching AE2's cursor padding. */
+    static int ae2TextFieldTextWidth(Font font, int frameWidth) {
+        return Math.max(0, frameWidth - AE2_TEXT_FIELD_PADDING * 2 - font.width("_"));
+    }
+
+    static void drawSlotGroupOutline(GuiGraphics graphics, int x, int y, int width, int height) {
+        graphics.fill(x, y, x + width, y + 1, PANEL_HIGHLIGHT);
+        graphics.fill(x, y, x + 1, y + height, PANEL_HIGHLIGHT);
+        graphics.fill(x + width - 1, y, x + width, y + height, PANEL_HIGHLIGHT);
+        graphics.fill(x, y + height - 1, x + width, y + height, PANEL_HIGHLIGHT);
     }
 
     static void drawSeparator(GuiGraphics graphics, int x, int y, int width) {
@@ -94,6 +159,35 @@ final class WirelessAeStyle {
         graphics.fill(x + 1, thumbY + 1, x + 5, thumbY + thumbHeight - 1, 0xFF9AA5AD);
     }
 
+    static void drawAe2Scrollbar(GuiGraphics graphics, int x, int y, int height, int totalRows, int visibleRows,
+                                 int scrollOffset) {
+        if (!needsScrollbar(totalRows, visibleRows) || height <= 0) {
+            return;
+        }
+
+        int thumbHeight = getAe2ScrollbarThumbHeight(height);
+        int thumbY = getScrollbarThumbY(y, height, thumbHeight, totalRows, visibleRows, scrollOffset);
+        drawAe2ScrollbarTrack(graphics, x, y, height, totalRows, visibleRows);
+        AE2_SCROLLBAR_STYLE.enabledBlitter().copy().dest(x, thumbY).blit(graphics);
+    }
+
+    static void drawAe2ScrollbarTrack(GuiGraphics graphics, int x, int y, int height, int totalRows,
+                                      int visibleRows) {
+        WirelessAeStyleMetrics.Bounds bounds = WirelessAeStyleMetrics.scrollbarTrackBounds(
+                x,
+                y,
+                AE2_SCROLLBAR_STYLE.handleWidth(),
+                height,
+                totalRows,
+                visibleRows);
+        if (bounds == null) {
+            return;
+        }
+
+        graphics.fill(bounds.x(), bounds.y(), bounds.right(), bounds.bottom(), 0x33000000);
+        graphics.fill(bounds.x() + 1, bounds.y() + 1, bounds.right() - 1, bounds.bottom() - 1, 0x33FFFFFF);
+    }
+
     static boolean needsScrollbar(int totalRows, int visibleRows) {
         return totalRows > Math.max(0, visibleRows);
     }
@@ -115,6 +209,18 @@ final class WirelessAeStyle {
         return clampScrollOffset((int) Math.round(localY * maxOffset / trackRange), totalRows, visibleRows);
     }
 
+    static int ae2ScrollbarOffsetFromMouse(double mouseY, int y, int height, int totalRows, int visibleRows) {
+        if (!needsScrollbar(totalRows, visibleRows)) {
+            return 0;
+        }
+
+        int thumbHeight = getAe2ScrollbarThumbHeight(height);
+        int trackRange = Math.max(1, height - thumbHeight);
+        int maxOffset = Math.max(1, totalRows - visibleRows);
+        double localY = Math.max(0.0D, Math.min(trackRange, mouseY - y - thumbHeight / 2.0D));
+        return clampScrollOffset((int) Math.round(localY * maxOffset / trackRange), totalRows, visibleRows);
+    }
+
     static void drawTrimmedString(GuiGraphics graphics, Font font, Component component, int x, int y, int width,
                                   int color) {
         String text = trimToWidth(font, component.getString(), width);
@@ -122,7 +228,11 @@ final class WirelessAeStyle {
     }
 
     static Button button(int x, int y, int width, Component message, Button.OnPress onPress) {
-        return new Ae2Button(x, y, width, 20, message, onPress, Accent.NONE);
+        return button(x, y, width, 20, message, onPress);
+    }
+
+    static Button button(int x, int y, int width, int height, Component message, Button.OnPress onPress) {
+        return new Ae2Button(x, y, width, height, message, onPress, Accent.NONE);
     }
 
     static Button selectedButton(int x, int y, int width, int height, Component message, Button.OnPress onPress) {
@@ -171,6 +281,54 @@ final class WirelessAeStyle {
         return new ResourceLocation("gtlcore", "textures/gui/wireless/" + name);
     }
 
+    private static void drawPanelBackground(GuiGraphics graphics, int x, int y, int width, int height) {
+        int textureWidth = WirelessAeStyleMetrics.panelBackgroundTextureLength(width, PANEL_TEXTURE_SIZE);
+        int textureHeight = WirelessAeStyleMetrics.panelBackgroundTextureLength(height, PANEL_TEXTURE_SIZE);
+        blitRegion(
+                graphics,
+                AE2_BACKGROUND,
+                x,
+                y,
+                0,
+                0,
+                textureWidth,
+                textureHeight,
+                PANEL_TEXTURE_SIZE,
+                PANEL_TEXTURE_SIZE);
+
+        int overflowWidth = WirelessAeStyleMetrics.panelBackgroundOverflowLength(width, PANEL_TEXTURE_SIZE);
+        if (overflowWidth > 0) {
+            graphics.fill(
+                    x + PANEL_TEXTURE_SIZE,
+                    y,
+                    x + PANEL_TEXTURE_SIZE + overflowWidth,
+                    y + textureHeight,
+                    PANEL_BACKGROUND_FILL);
+        }
+
+        int overflowHeight = WirelessAeStyleMetrics.panelBackgroundOverflowLength(height, PANEL_TEXTURE_SIZE);
+        if (overflowHeight > 0) {
+            graphics.fill(
+                    x,
+                    y + PANEL_TEXTURE_SIZE,
+                    x + width,
+                    y + PANEL_TEXTURE_SIZE + overflowHeight,
+                    PANEL_BACKGROUND_FILL);
+        }
+    }
+
+    private static void drawPanelFrame(GuiGraphics graphics, int x, int y, int width, int height,
+                                       int outerShadow, int innerShadow) {
+        graphics.fill(x, y, x + width, y + 1, PANEL_LIGHT_BORDER);
+        graphics.fill(x, y, x + 1, y + height, PANEL_LIGHT_BORDER);
+        graphics.fill(x + width - 1, y, x + width, y + height, outerShadow);
+        graphics.fill(x, y + height - 1, x + width, y + height, outerShadow);
+        graphics.fill(x + 1, y + 1, x + width - 1, y + 2, PANEL_HIGHLIGHT);
+        graphics.fill(x + 1, y + 1, x + 2, y + height - 1, PANEL_HIGHLIGHT);
+        graphics.fill(x + 1, y + height - 2, x + width - 1, y + height - 1, innerShadow);
+        graphics.fill(x + width - 2, y + 1, x + width - 1, y + height - 1, innerShadow);
+    }
+
     private static String trimToWidth(Font font, String text, int width) {
         if (font.width(text) <= width) {
             return text;
@@ -185,6 +343,10 @@ final class WirelessAeStyle {
     private static int getScrollbarThumbHeight(int height, int totalRows, int visibleRows) {
         int thumbHeight = Math.max(12, height * Math.max(1, visibleRows) / Math.max(1, totalRows));
         return Math.min(height, thumbHeight);
+    }
+
+    private static int getAe2ScrollbarThumbHeight(int height) {
+        return Math.min(height, AE2_SCROLLBAR_STYLE.handleHeight());
     }
 
     private static int getScrollbarThumbY(int y, int height, int thumbHeight, int totalRows, int visibleRows,

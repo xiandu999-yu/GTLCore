@@ -5,13 +5,16 @@ import org.gtlcore.gtlcore.common.data.*;
 import org.gtlcore.gtlcore.common.data.machines.GeneratorMachine;
 import org.gtlcore.gtlcore.config.ConfigHolder;
 import org.gtlcore.gtlcore.integration.ae2.InfinityCellGuiHandler;
+import org.gtlcore.gtlcore.integration.ae2.storage.CircuitInfinityCellHandler;
 import org.gtlcore.gtlcore.integration.ae2.storage.FastInfinityCellHandler;
 import org.gtlcore.gtlcore.integration.ae2.storage.InfinityCellHandler;
+import org.gtlcore.gtlcore.integration.ae2.wireless.CuriosTerminalLocator;
 import org.gtlcore.gtlcore.integration.ae2.wireless.GTLWirelessAeContent;
 import org.gtlcore.gtlcore.integration.ae2.wireless.WirelessAeNetworkRuntime;
 import org.gtlcore.gtlcore.integration.ae2.wireless.WirelessAePackets;
 import org.gtlcore.gtlcore.integration.ftbu.AreaShape;
 import org.gtlcore.gtlcore.network.GTLNetworkHandler;
+import org.gtlcore.gtlcore.network.InfiniteSprayCanPackets;
 
 import com.gregtechceu.gtceu.api.GTCEuAPI;
 import com.gregtechceu.gtceu.api.data.chemical.material.event.MaterialEvent;
@@ -39,9 +42,17 @@ public class CommonProxy {
         CommonProxy.init();
         IEventBus eventBus = FMLJavaModLoadingContext.get().getModEventBus();
         REGISTRATE.registerEventListeners(eventBus);
+        GTLStats.register(eventBus);
+        GTLRecipes.register(eventBus);
+        GTLPlushies.register(eventBus);
         GTLWirelessAeContent.register(eventBus);
+        org.gtlcore.gtlcore.integration.gtmt.monitor.EnergyMonitorContent.register(eventBus);
         WirelessAeNetworkRuntime.register(MinecraftForge.EVENT_BUS);
         WirelessAePackets.register();
+        org.gtlcore.gtlcore.network.ManipulatorPackets.register();
+        InfiniteSprayCanPackets.register();
+        org.gtlcore.gtlcore.integration.ftbquests.QuestTranslationNetwork.register();
+        CuriosTerminalLocator.register();
         eventBus.addListener(this::commonSetup);
         eventBus.addListener(this::clientSetup);
         eventBus.addListener(this::addMaterialRegistries);
@@ -61,6 +72,7 @@ public class CommonProxy {
     private void commonSetup(final FMLCommonSetupEvent event) {
         StorageCells.addCellHandler(InfinityCellHandler.INSTANCE);
         StorageCells.addCellHandler(FastInfinityCellHandler.INSTANCE);
+        StorageCells.addCellHandler(CircuitInfinityCellHandler.INSTANCE);
         StorageCells.addCellGuiHandler(new InfinityCellGuiHandler());
         event.enqueueWork(this::postRegistrationInitialization).whenComplete((res, err) -> {
             if (err != null) {
@@ -70,6 +82,7 @@ public class CommonProxy {
     }
 
     public void postRegistrationInitialization() {
+        org.gtlcore.gtlcore.integration.ae2.manipulator.ManipulatorNetwork.register();
         GTLItems.InitUpgrades();
         GTLNetworkHandler.INSTANCE.init();
     }

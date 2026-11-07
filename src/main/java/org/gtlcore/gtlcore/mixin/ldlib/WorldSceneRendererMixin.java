@@ -1,9 +1,13 @@
 package org.gtlcore.gtlcore.mixin.ldlib;
 
+import org.gtlcore.gtlcore.client.preview.PreviewRendererAccess;
+import org.gtlcore.gtlcore.client.preview.PreviewSceneState;
+import org.gtlcore.gtlcore.client.preview.PreviewScenes;
 import org.gtlcore.gtlcore.utils.RenderUtil;
 import org.gtlcore.gtlcore.utils.datastructure.CacheState;
 
 import com.lowdragmc.lowdraglib.Platform;
+import com.lowdragmc.lowdraglib.client.scene.CameraEntity;
 import com.lowdragmc.lowdraglib.client.scene.ISceneBlockRenderHook;
 import com.lowdragmc.lowdraglib.client.scene.ISceneEntityRenderHook;
 import com.lowdragmc.lowdraglib.client.scene.WorldSceneRenderer;
@@ -17,6 +21,7 @@ import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
 import net.minecraft.client.renderer.block.ModelBlockRenderer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -24,19 +29,86 @@ import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.client.model.data.ModelData;
 
+import com.llamalad7.mixinextras.sugar.Local;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Mixin(WorldSceneRenderer.class)
-public abstract class WorldSceneRendererMixin {
+public abstract class WorldSceneRendererMixin implements PreviewRendererAccess {
+
+    @Unique
+    private PreviewScenes.Key gTLCore$previewKey;
+    @Unique
+    private PreviewSceneState gTLCore$previewScene;
+    @Shadow(remap = false)
+    protected boolean ortho;
+    @Shadow(remap = false)
+    protected CameraEntity cameraEntity;
+    @Shadow(remap = false)
+    private float fov;
+
+    @Override
+    public float gtlcore$fov() {
+        return fov;
+    }
+
+    @Override
+    public void gtlcore$previewKey(PreviewScenes.Key key) {
+        gTLCore$previewKey = key;
+    }
+
+    @Override
+    public PreviewScenes.Key gtlcore$previewKey() {
+        return gTLCore$previewKey;
+    }
+
+    @Override
+    public Iterator<BlockPos> gtlcore$rayCandidates(Vec3 start, Vec3 end) {
+        return gTLCore$previewScene == null ? null : gTLCore$previewScene.rayCandidates(start, end);
+    }
+
+    @Inject(method = "getCompileProgress", at = @At("HEAD"), cancellable = true, remap = false)
+    private void gTLCore$previewProgress(CallbackInfoReturnable<Double> cir) {
+        if (gTLCore$previewScene != null && gTLCore$previewScene.compiling()) {
+            cir.setReturnValue(gTLCore$previewScene.progress());
+        }
+    }
+
+    @Inject(method = "rayTrace", at = @At("HEAD"), cancellable = true, remap = false)
+    private void gTLCore$previewTrace(Vector3f point, CallbackInfoReturnable<BlockHitResult> cir) {
+        if (gTLCore$previewKey == null || gTLCore$previewScene == null) return;
+        if (!Float.isFinite(point.x) || !Float.isFinite(point.y) || !Float.isFinite(point.z)) {
+            cir.setReturnValue(null);
+            return;
+        }
+        var renderer = (WorldSceneRenderer) (Object) this;
+        var start = new Vec3(renderer.getEyePos());
+        if (ortho) start = start.add(start.subtract(new Vec3(renderer.getLookAt())).scale(500));
+        var twice = point.mul(2.0f, new Vector3f());
+        var end = new Vec3(twice.x - start.x, twice.y - start.y, twice.z - start.z);
+        try {
+            var hit = gTLCore$previewScene.trace(world, start, end, cameraEntity);
+            if (hit != null) cir.setReturnValue(hit);
+        } catch (RuntimeException unsupportedShape) {
+            cir.setReturnValue(null);
+        }
+    }
 
     @Unique
     private AtomicReference<CacheState> gTLCore$cacheState = new AtomicReference<>(CacheState.UNUSED);
@@ -83,6 +155,25 @@ public abstract class WorldSceneRendererMixin {
         throw new AssertionError();
     }
 
+    @Unique
+    private boolean gTLCore$canRenderModelInLayer(BlockRenderDispatcher dispatcher, BlockState state, BlockPos pos, RenderType layer) {
+        var model = dispatcher.getBlockModel(state);
+        var entity = world.getBlockEntity(pos);
+        var data = model.getModelData(world, pos, state, entity == null ? ModelData.EMPTY : entity.getModelData());
+        var random = RandomSource.create(state.getSeed(pos));
+        // JSON and wrapped models can declare layers absent from the legacy block-layer table.
+        return model.getRenderTypes(state, random, data).contains(layer);
+    }
+
+    @Redirect(method = "renderBlocks",
+              at = @At(value = "INVOKE",
+                       target = "Lcom/lowdragmc/lowdraglib/client/scene/WorldSceneRenderer;canRenderInLayer(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/client/renderer/RenderType;)Z"),
+              remap = false)
+    private boolean gTLCore$immediateModelLayer(BlockState state, RenderType layer, @Local BlockPos pos,
+                                                @Local(argsOnly = true) BlockRenderDispatcher dispatcher) {
+        return gTLCore$canRenderModelInLayer(dispatcher, state, pos, layer);
+    }
+
     /**
      * @author Dragons
      * @reason CacheState
@@ -115,6 +206,7 @@ public abstract class WorldSceneRendererMixin {
      */
     @Overwrite(remap = false)
     public WorldSceneRenderer deleteCacheBuffer() {
+        if (gTLCore$previewScene != null) gTLCore$previewScene.release();
         if (useCache && gTLCore$vertexBufferBatches != null) {
             for (List<VertexBuffer> bufferList : gTLCore$vertexBufferBatches) {
                 if (bufferList != null) {
@@ -144,6 +236,8 @@ public abstract class WorldSceneRendererMixin {
      */
     @Overwrite(remap = false)
     public WorldSceneRenderer needCompileCache() {
+        if (gTLCore$previewScene != null) gTLCore$previewScene.release();
+        PreviewScenes.invalidate(gTLCore$previewKey);
         if (gTLCore$cacheState.get() == CacheState.COMPILING && thread != null) {
             thread.interrupt();
             thread = null;
@@ -172,7 +266,8 @@ public abstract class WorldSceneRendererMixin {
      */
     @Overwrite(remap = false)
     public boolean isCompiling() {
-        return gTLCore$cacheState.get() == CacheState.COMPILING;
+        return (gTLCore$previewScene != null && gTLCore$previewScene.compiling()) ||
+                gTLCore$cacheState.get() == CacheState.COMPILING;
     }
 
     /**
@@ -182,6 +277,10 @@ public abstract class WorldSceneRendererMixin {
     @SuppressWarnings({ "DataFlowIssue", "deprecation" })
     @Overwrite(remap = false)
     private void renderCacheBuffer(Minecraft mc, MultiBufferSource.BufferSource buffers, float particleTicks) {
+        if (gTLCore$previewKey != null) {
+            if (gTLCore$previewScene == null) gTLCore$previewScene = new PreviewSceneState();
+            if (gTLCore$previewScene.render(gTLCore$previewKey, (WorldSceneRenderer) (Object) this, particleTicks)) return;
+        }
         List<RenderType> layers = RenderType.chunkBufferLayers();
         if (gTLCore$cacheState.get() == CacheState.NEED) {
             progress = 0;
@@ -241,7 +340,7 @@ public abstract class WorldSceneRendererMixin {
                                     hook.applyVertexConsumerWrapper(world, pos, state, wrapperBuffer, layer, 0);
                                 }
 
-                                if (state.getRenderShape() != RenderShape.INVISIBLE && WorldSceneRenderer.canRenderInLayer(state, layer)) {
+                                if (state.getRenderShape() != RenderShape.INVISIBLE && gTLCore$canRenderModelInLayer(blockRendererDispatcher, state, pos, layer)) {
                                     matrixStack.pushPose();
                                     matrixStack.translate(pos.getX(), pos.getY(), pos.getZ());
                                     if (Platform.isForge()) {

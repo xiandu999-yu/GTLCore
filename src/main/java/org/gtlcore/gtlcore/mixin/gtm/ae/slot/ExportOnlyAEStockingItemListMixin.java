@@ -48,7 +48,7 @@ public abstract class ExportOnlyAEStockingItemListMixin extends ExportOnlyAEItem
     protected IntArrayList gTLCore$configIndexList;
 
     @Unique
-    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.enableUltimateMEStocking;
+    private static final boolean ENABLE_ULTIMATE_ME_STOCKING = ConfigHolder.INSTANCE.machines.enableUltimateMEStocking;
 
     @SuppressWarnings("target")
     @Shadow(remap = false)
@@ -83,6 +83,9 @@ public abstract class ExportOnlyAEStockingItemListMixin extends ExportOnlyAEItem
     @Override
     public List<Ingredient> handleRecipeInner(IO io, GTRecipe recipe, List<Ingredient> left, @Nullable String slotName, boolean simulate) {
         if (io != IO.IN || left.isEmpty()) {
+            return left;
+        }
+        if (!this$0.isWorkingEnabled()) {
             return left;
         }
         IGrid grid = this$0.getMainNode().getGrid();
